@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">TG WS Proxy</string>
+    <string name="status_running">Proxy is running on 127.0.0.1:%1$d</string>
+    <string name="status_stopped">Proxy is stopped</string>
+    <string name="start">Start</string>
+    <string name="stop">Stop</string>
+    <string name="open_in_telegram">Add to Telegram</string>
+    <string name="copy_link">Copy link</string>
+    <string name="link_copied">Link copied</string>
+    <string name="no_telegram">Telegram is not installed</string>
+    <string name="port">Port</string>
+    <string name="secret">Secret (32 hex chars)</string>
+    <string name="dc_ip">DC IPs (one per line, DC:IP)</string>
+    <string name="cfproxy">Cloudflare proxy fallback</string>
+    <string name="cf_worker">Cloudflare Worker domains (comma-separated)</string>
+    <string name="cf_worker_hint">Fallback only: used when the direct connection to Telegram fails. Leave empty to disable.</string>
+    <string name="autostart">Start on boot</string>
+    <string name="verbose">Verbose log</string>
+    <string name="regen_secret">New secret</string>
+    <string name="battery">Disable battery optimization</string>
+    <string name="logs">Log</string>
+    <string name="invalid_port">Port must be 1024–65535</string>
+    <string name="notif_channel">Proxy service</string>
+    <string name="notif_title">TG WS Proxy is running</string>
+    <string name="notif_text">Listening on 127.0.0.1:%1$d</string>
+    <string name="notif_stop">Stop</string>
+    <string name="hint">Settings changes apply on the next start.</string>
+</resources>

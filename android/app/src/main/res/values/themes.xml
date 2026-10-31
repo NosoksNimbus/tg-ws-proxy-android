@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TgWsProxy" parent="Theme.AppCompat.DayNight.DarkActionBar">
+        <item name="colorPrimary">#0088CC</item>
+        <item name="colorPrimaryDark">#006699</item>
+        <item name="colorAccent">#0088CC</item>
+    </style>
+</resources>
