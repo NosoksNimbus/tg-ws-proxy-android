@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="tg_blue">#229ED9</color>
+    <color name="tg_blue_dark">#1679AA</color>
+    <color name="surface_light">#FFFFFF</color>
+    <color name="surface_dark">#252A31</color>
+    <color name="input_light">#F1F4F7</color>
+    <color name="input_dark">#333941</color>
+    <color name="text_secondary">#7A858F</color>
+</resources>

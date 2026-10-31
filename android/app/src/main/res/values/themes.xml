@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.TgWsProxy" parent="Theme.AppCompat.DayNight.DarkActionBar">
-        <item name="colorPrimary">#0088CC</item>
-        <item name="colorPrimaryDark">#006699</item>
-        <item name="colorAccent">#0088CC</item>
+        <item name="colorPrimary">@color/tg_blue</item>
+        <item name="colorPrimaryDark">@color/tg_blue_dark</item>
+        <item name="colorAccent">@color/tg_blue</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
     </style>
 </resources>
