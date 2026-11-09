@@ -181,25 +181,47 @@ class MainActivity : AppCompatActivity() {
 
     // ---- settings form --------------------------------------------------------------
 
-    /** Validates and stores the whole form. Returns false (showing the error) if invalid. */
+    /** Accepts a bare 32-hex secret as well as a pasted "dd…"/"ee…" proxy secret. */
+    private fun normalizeSecret(raw: String): String {
+        val t = raw.filter { !it.isWhitespace() }.lowercase()
+        return if (t.length > 32 && (t.startsWith("dd") || t.startsWith("ee"))) t.substring(2, 34.coerceAtMost(t.length)) else t
+    }
+
+    /**
+     * Validates and stores the whole form. Returns false (showing the error) if invalid.
+     * If the proxy is running and the connection settings changed, it is restarted so the
+     * link given to Telegram always matches what the proxy actually uses.
+     */
     private fun saveForm(): Boolean {
-        val p = port.text.toString().toIntOrNull()
+        val p = port.text.toString().trim().toIntOrNull()
         if (p == null || p !in 1024..65535) {
             tilPort.error = getString(R.string.invalid_port)
+            port.requestFocus()
+            Toast.makeText(this, R.string.invalid_port, Toast.LENGTH_SHORT).show()
             return false
         }
         tilPort.error = null
-        val s = secret.text.toString().trim().lowercase()
+        val s = normalizeSecret(secret.text.toString())
         if (!Regex("[0-9a-f]{32}").matches(s)) {
             tilSecret.error = getString(R.string.invalid_secret)
+            secret.requestFocus()
+            Toast.makeText(this, R.string.invalid_secret, Toast.LENGTH_SHORT).show()
             return false
         }
         tilSecret.error = null
+        if (secret.text.toString() != s) secret.setText(s)
+
+        val before = Settings.toJson(this)
         Settings.save(
             this, p, s, dcIp.text.toString(), cfWorker.text.toString(),
             cfproxy.isChecked, autostart.isChecked, verbose.isChecked,
             keepAwake.isChecked, autoUpdate.isChecked, wifiOnly.isChecked,
         )
+        if (ProxyService.running && Settings.toJson(this) != before) {
+            startService(
+                Intent(this, ProxyService::class.java).setAction(ProxyService.ACTION_RESTART))
+            Toast.makeText(this, R.string.restarted_applied, Toast.LENGTH_SHORT).show()
+        }
         return true
     }
 

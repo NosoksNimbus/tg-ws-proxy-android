@@ -36,6 +36,7 @@ class ProxyService : Service() {
     companion object {
         const val ACTION_START = "org.flowseal.tgwsproxy.START"
         const val ACTION_STOP = "org.flowseal.tgwsproxy.STOP"
+        const val ACTION_RESTART = "org.flowseal.tgwsproxy.RESTART"
         const val CHANNEL_PROXY = "proxy"
         const val CHANNEL_UPDATES = "updates"
         const val NOTIF_ID = 1
@@ -86,6 +87,10 @@ class ProxyService : Service() {
             Settings.setWantRunning(this, false)
             shutdown()
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RESTART) {
+            thread(name = "proxy-restart") { restartProxy() }
+            return START_STICKY
         }
         wanted = true
         Settings.setWantRunning(this, true)
@@ -144,6 +149,21 @@ class ProxyService : Service() {
                 fail(e.message ?: e.toString())
             }
         }
+    }
+
+    /** Re-reads the settings: stops the core and starts it again with the new config. */
+    private fun restartProxy() {
+        synchronized(lock) {
+            try {
+                if (Python.isStarted()) {
+                    Python.getInstance().getModule("android_entry").callAttr("stop")
+                }
+            } catch (_: Throwable) {
+            }
+            running = false
+        }
+        enterForeground() // refresh the notification (port may have changed)
+        startProxy()
     }
 
     private fun fail(message: String) {

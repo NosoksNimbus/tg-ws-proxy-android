@@ -74,5 +74,6 @@
     <string name="notif_text">Слушает 127.0.0.1:%1$d</string>
     <string name="notif_stop">Остановить</string>
 
+    <string name="restarted_applied">Прокси перезапущен с новыми настройками</string>
     <string name="hint">Изменения настроек применяются при следующем запуске.</string>
 </resources>
