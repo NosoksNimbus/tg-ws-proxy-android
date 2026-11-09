@@ -1,12 +1,24 @@
 name: Build Android APK
 
+# Push a tag like v1.11.4 (core version) or v1.11.4.1 (app fix on the same core)
+# to publish a GitHub Release. The in-app updater installs that release.
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version without 'v' (e.g. 1.11.4.1). Empty = core version from proxy/__init__.py"
+        required: false
+        default: ""
+      release:
+        description: "Publish a GitHub Release (needs signing secrets)"
+        type: boolean
+        default: false
   push:
-    paths:
-      - "android/**"
-      - "proxy/**"
-      - ".github/workflows/android.yml"
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
 
 jobs:
   apk:
@@ -28,11 +40,71 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Resolve version
+        id: ver
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            V="${GITHUB_REF_NAME#v}"
+            REL=true
+          else
+            V="${{ github.event.inputs.version }}"
+            REL="${{ github.event.inputs.release }}"
+          fi
+          if [ -z "$V" ]; then
+            V=$(sed -n 's/.*__version__ *= *"\([^"]*\)".*/\1/p' proxy/__init__.py)
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "release=$REL" >> "$GITHUB_OUTPUT"
+
+      # In-app updates only work if every release is signed with the same key.
+      - name: Prepare signing key
+        id: sign
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            if [ "${{ steps.ver.outputs.release }}" = "true" ]; then
+              echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not set. A release signed with a random key can't be installed over the previous version. See docs/RU/README.android.md."
+              exit 1
+            fi
+            echo "::warning::No signing key: building with a throwaway debug key (not updatable)."
+          fi
+
       - name: Build APK
         working-directory: android
-        run: ./gradlew --no-daemon assembleRelease
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          ./gradlew --no-daemon assembleRelease \
+            -PappVersion=${{ steps.ver.outputs.version }} \
+            -Pabis=arm64-v8a \
+            -PupdateRepo=${{ github.repository }}
+
+      - name: Name the APK
+        run: |
+          cp android/app/build/outputs/apk/release/*.apk \
+             "TgWsProxy-${{ steps.ver.outputs.version }}.apk"
 
       - uses: actions/upload-artifact@v4
         with:
           name: TgWsProxy_android
-          path: android/app/build/outputs/apk/release/*.apk
+          path: TgWsProxy-*.apk
+
+      - name: Publish release
+        if: steps.ver.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.ver.outputs.version }}"
+          gh release create "$TAG" "TgWsProxy-${{ steps.ver.outputs.version }}.apk" \
+            --target "${{ github.sha }}" \
+            --title "TG WS Proxy ${{ steps.ver.outputs.version }}" \
+            --notes "Android build of tg-ws-proxy core $(sed -n 's/.*__version__ *= *"\([^"]*\)".*/\1/p' proxy/__init__.py)." \
+            || gh release upload "$TAG" "TgWsProxy-${{ steps.ver.outputs.version }}.apk" --clobber

@@ -10,12 +10,13 @@ import asyncio
 import collections
 import json
 import logging
+import socket
 import threading
 import time
 from typing import Optional, Tuple
 
 from proxy import __version__
-from proxy import tg_ws_proxy
+from proxy import raw_websocket, tg_ws_proxy
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
 from proxy.tg_ws_proxy import _run
 from proxy.utils import DomainCensorFilter, get_link_host
@@ -191,6 +192,95 @@ def link(cfg_json: str = "") -> str:
     else:
         secret = "dd" + secret
     return "tg://proxy?server=%s&port=%s&secret=%s" % (host, cfg["port"], secret)
+
+
+# ---------------------------------------------------------------------------
+# Mobile-network tuning
+#
+# Cellular carriers sit behind CGNAT and silently drop idle or half-dead TCP
+# flows, and a handover (LTE <-> Wi-Fi, tower change) leaves old sockets
+# hanging until a long timeout. The desktop core does not need to care, so we
+# harden the sockets here instead of touching the shared core.
+# ---------------------------------------------------------------------------
+_KEEPIDLE = 25      # s of silence before the first keepalive probe
+_KEEPINTVL = 10     # s between probes
+_KEEPCNT = 3        # failed probes before the connection is dropped
+_USER_TIMEOUT = 35000  # ms: give up on unacknowledged data
+
+
+def _harden_socket(transport) -> None:
+    try:
+        sock = transport.get_extra_info("socket")
+        if sock is None:
+            return
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for name, value in (
+            ("TCP_KEEPIDLE", _KEEPIDLE),
+            ("TCP_KEEPINTVL", _KEEPINTVL),
+            ("TCP_KEEPCNT", _KEEPCNT),
+            ("TCP_USER_TIMEOUT", _USER_TIMEOUT),
+        ):
+            opt = getattr(socket, name, None)
+            if opt is not None:
+                try:
+                    sock.setsockopt(socket.IPPROTO_TCP, opt, value)
+                except OSError:
+                    pass
+    except Exception:  # noqa: BLE001 - never let tuning break a connection
+        pass
+
+
+def _patch_sockets() -> None:
+    original = raw_websocket.set_sock_opts
+    if getattr(original, "_mobile_patched", False):
+        return
+
+    def set_sock_opts(transport, buffer_size):
+        original(transport, buffer_size)
+        _harden_socket(transport)
+
+    set_sock_opts._mobile_patched = True  # type: ignore[attr-defined]
+    # The core imports the function by name in two places.
+    raw_websocket.set_sock_opts = set_sock_opts
+    tg_ws_proxy.set_sock_opts = set_sock_opts
+
+
+_patch_sockets()
+
+
+def network_changed() -> None:
+    """Called from Kotlin when the default network switched or came back.
+
+    Drops pooled upstream sockets (they belong to the old network) and the
+    active client sessions, so Telegram reconnects immediately instead of
+    waiting for TCP timeouts, then warms the pools up again.
+    """
+    stopper = _async_stop
+    if stopper is None:
+        return
+    loop, _ = stopper
+
+    async def _reset() -> None:
+        from proxy.bridge import reset_tcp_backoff
+        from proxy.pool import cf_worker_pool, ws_pool
+
+        reset_tcp_backoff()
+        ws_pool.reset()
+        cf_worker_pool.reset()
+        for task in list(tg_ws_proxy._client_tasks):
+            task.cancel()
+        await ws_pool.warmup()
+        await cf_worker_pool.warmup()
+        log.info("Network changed: connections reset, pools warming up")
+
+    try:
+        asyncio.run_coroutine_threadsafe(_reset(), loop)
+    except RuntimeError:
+        pass
+
+
+def core_version() -> str:
+    return __version__
 
 
 def get_logs() -> str:

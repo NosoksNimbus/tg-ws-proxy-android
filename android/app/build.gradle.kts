@@ -18,10 +18,25 @@ tasks.named("preBuild") { dependsOn(syncProxyCore) }
 // The Python source merge reads src/main/python, so it must run after the sync.
 tasks.matching { it.name.contains("PythonSources") }.configureEach { dependsOn(syncProxyCore) }
 
-// Version is read from proxy/__init__.py so Android follows the desktop release.
+// Core version comes from proxy/__init__.py so the app follows the desktop release.
 val coreVersion: String = Regex("""__version__\s*=\s*"([^"]+)"""")
     .find(rootProject.file("../proxy/__init__.py").readText())
     ?.groupValues?.get(1) ?: "0.0.0"
+
+// Release builds pass -PappVersion=<core>.<revision> (e.g. 1.11.4.2) so the app
+// can ship its own fixes between core releases. versionCode must only ever grow,
+// because the in-app updater installs over the previous APK.
+val appVersion: String = (findProperty("appVersion") as String?)?.removePrefix("v") ?: coreVersion
+val appVersionCode: Int = appVersion.split(".").map { it.toIntOrNull() ?: 0 }.let {
+    (it.getOrElse(0) { 0 }) * 1_000_000 +
+        (it.getOrElse(1) { 0 }) * 10_000 +
+        (it.getOrElse(2) { 0 }) * 100 +
+        (it.getOrElse(3) { 0 })
+}
+val abis: List<String> = ((findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",")
+
+// Where the in-app updater looks for releases.
+val updateRepo: String = (findProperty("updateRepo") as String?) ?: "NosoksNimbus/tg-ws-proxy-android"
 
 android {
     namespace = "org.flowseal.tgwsproxy"
@@ -31,25 +46,40 @@ android {
         applicationId = "org.flowseal.tgwsproxy"
         minSdk = 24
         targetSdk = 34
-        versionName = coreVersion
-        versionCode = coreVersion.split(".").let {
-            (it.getOrNull(0)?.toIntOrNull() ?: 0) * 10000 +
-                (it.getOrNull(1)?.toIntOrNull() ?: 0) * 100 +
-                (it.getOrNull(2)?.toIntOrNull() ?: 0)
-        }
+        versionName = appVersion
+        versionCode = appVersionCode
+        buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
+        buildConfigField("String", "CORE_VERSION", "\"$coreVersion\"")
 
         ndk {
             // Python 3.12 in Chaquopy is 64-bit only, so no armeabi-v7a.
-            abiFilters += listOf("arm64-v8a", "x86_64")
+            // Release CI passes -Pabis=arm64-v8a to keep the APK (and updates) small.
+            abiFilters += abis
+        }
+    }
+
+    buildFeatures { buildConfig = true }
+
+    // In-app updates only work if every release is signed with the SAME key.
+    // CI provides it through env vars (see .github/workflows/android.yml);
+    // without them we fall back to the local debug key.
+    val releaseKeystore = System.getenv("ANDROID_KEYSTORE_FILE")
+    signingConfigs {
+        if (releaseKeystore != null && file(releaseKeystore).exists()) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
         }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
-            // No private keystore in the repo: sign with the debug key so the
-            // APK is directly installable. Replace for Play Store publishing.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
+                ?: signingConfigs.getByName("debug")
         }
     }
 
@@ -75,4 +105,5 @@ chaquopy {
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("com.google.android.material:material:1.12.0")
 }

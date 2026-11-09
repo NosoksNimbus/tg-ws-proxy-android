@@ -1,10 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="tg_blue">#229ED9</color>
-    <color name="tg_blue_dark">#1679AA</color>
-    <color name="surface_light">#FFFFFF</color>
-    <color name="surface_dark">#252A31</color>
-    <color name="input_light">#F1F4F7</color>
-    <color name="input_dark">#333941</color>
-    <color name="text_secondary">#7A858F</color>
+    <color name="brand">#229ED9</color>
+    <color name="brand_dark">#1679AA</color>
+    <color name="brand_deep">#0E5A85</color>
+
+    <!-- header states -->
+    <color name="hdr_on_start">#2AABEE</color>
+    <color name="hdr_on_end">#1366A8</color>
+    <color name="hdr_off_start">#6B7A89</color>
+    <color name="hdr_off_end">#3B4652</color>
+    <color name="hdr_err_start">#E5645A</color>
+    <color name="hdr_err_end">#A52E3A</color>
+
+    <color name="screen_bg">#F2F5F8</color>
+    <color name="card_bg">#FFFFFF</color>
+    <color name="card_stroke">#E3E8ED</color>
+    <color name="text_primary">#15202B</color>
+    <color name="text_secondary">#62707D</color>
+    <color name="log_bg">#0F1720</color>
+    <color name="log_text">#B8C7D6</color>
+    <color name="icon_bg_start">#2AABEE</color>
+    <color name="icon_bg_end">#0E5A85</color>
 </resources>

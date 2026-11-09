@@ -1,29 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TG WS Proxy</string>
-    <string name="status_running">Прокси работает на 127.0.0.1:%1$d</string>
-    <string name="status_stopped">Прокси остановлен</string>
-    <string name="start">Запустить</string>
-    <string name="stop">Остановить</string>
+
+    <!-- status -->
+    <string name="state_off">Выключено</string>
+    <string name="state_on">Работает</string>
+    <string name="state_starting">Запуск…</string>
+    <string name="state_error">Ошибка</string>
+    <string name="state_off_hint">Нажмите кнопку, чтобы запустить прокси</string>
+    <string name="state_on_hint">Telegram → 127.0.0.1:%1$d</string>
+    <string name="chip_core">ядро %1$s</string>
+
+    <!-- actions -->
     <string name="open_in_telegram">Добавить в Telegram</string>
     <string name="copy_link">Скопировать ссылку</string>
     <string name="link_copied">Ссылка скопирована</string>
     <string name="no_telegram">Telegram не установлен</string>
+
+    <!-- connection -->
+    <string name="sec_connection">Подключение</string>
     <string name="port">Порт</string>
     <string name="secret">Secret (32 hex-символа)</string>
-    <string name="dc_ip">IP дата-центров (по одному в строке, DC:IP)</string>
+    <string name="secret_new">Новый secret</string>
+    <string name="dc_ip">IP дата-центров (DC:IP, по одному в строке)</string>
+    <string name="invalid_port">Порт должен быть 1024–65535</string>
+    <string name="invalid_secret">Ровно 32 hex-символа</string>
+
+    <!-- fallback -->
+    <string name="sec_fallback">Резервные маршруты</string>
     <string name="cfproxy">Резерв через Cloudflare-прокси</string>
-    <string name="cf_worker">Домены Cloudflare Worker (через запятую)</string>
+    <string name="cf_worker">Домены Cloudflare Worker</string>
     <string name="cf_worker_hint">Только резерв: используется, если прямое подключение к Telegram не удалось. Пусто — выключено.</string>
+
+    <!-- system -->
+    <string name="sec_system">Стабильность</string>
+    <string name="keep_awake">Не давать телефону засыпать</string>
+    <string name="keep_awake_hint">Wake lock помогает в мобильной сети в режиме сна, немного больше расходует батарею.</string>
     <string name="autostart">Запускать при загрузке</string>
     <string name="verbose">Подробный лог</string>
-    <string name="regen_secret">Новый secret</string>
     <string name="battery">Отключить оптимизацию батареи</string>
+
+    <!-- updates -->
+    <string name="sec_updates">Обновления</string>
+    <string name="version_line">Версия %1$s · ядро %2$s</string>
+    <string name="update_checked_never">Ещё не проверялось</string>
+    <string name="update_checked_at">Проверено %1$s</string>
+    <string name="update_up_to_date">Установлена последняя версия</string>
+    <string name="update_available">Доступно обновление %1$s</string>
+    <string name="update_check">Проверить обновления</string>
+    <string name="update_install">Установить %1$s</string>
+    <string name="update_download_install">Скачать и установить %1$s</string>
+    <string name="update_checking">Проверка…</string>
+    <string name="update_downloading">Загрузка… %1$d%%</string>
+    <string name="update_auto">Обновлять автоматически</string>
+    <string name="update_wifi_only">Скачивать только по Wi-Fi</string>
+    <string name="update_check_failed">Не удалось проверить обновления</string>
+    <string name="update_allow_install">Разрешите установку из этого приложения и нажмите «Установить» ещё раз</string>
+    <string name="update_failed">Не удалось обновить: %1$s</string>
+    <string name="update_available_title">Доступно обновление %1$s</string>
+    <string name="update_ready_title">Обновление готово</string>
+    <string name="update_tap_install">Нажмите, чтобы установить</string>
+    <string name="update_tap_download">Нажмите, чтобы скачать и установить</string>
+
+    <!-- log -->
     <string name="logs">Лог</string>
-    <string name="invalid_port">Порт должен быть 1024–65535</string>
+    <string name="logs_copy">Скопировать лог</string>
+    <string name="logs_empty">Лог пуст</string>
+
+    <!-- notifications -->
     <string name="notif_channel">Сервис прокси</string>
+    <string name="notif_channel_updates">Обновления приложения</string>
     <string name="notif_title">TG WS Proxy работает</string>
     <string name="notif_text">Слушает 127.0.0.1:%1$d</string>
     <string name="notif_stop">Остановить</string>
+
     <string name="hint">Изменения настроек применяются при следующем запуске.</string>
 </resources>

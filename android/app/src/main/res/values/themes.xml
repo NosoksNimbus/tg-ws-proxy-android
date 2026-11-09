@@ -1,11 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.TgWsProxy" parent="Theme.AppCompat.DayNight.DarkActionBar">
-        <item name="colorPrimary">@color/tg_blue</item>
-        <item name="colorPrimaryDark">@color/tg_blue_dark</item>
-        <item name="colorAccent">@color/tg_blue</item>
-        <item name="android:fontFamily">sans</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
+    <style name="Theme.TgWsProxy" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand</item>
+        <item name="colorOnPrimary">@android:color/white</item>
+        <item name="colorPrimaryContainer">#CDEBFA</item>
+        <item name="colorOnPrimaryContainer">#00293C</item>
+        <item name="android:colorBackground">@color/screen_bg</item>
+        <item name="colorSurface">@color/card_bg</item>
+        <item name="colorOnSurface">@color/text_primary</item>
+        <item name="colorOnSurfaceVariant">@color/text_secondary</item>
+        <item name="colorOutline">@color/card_stroke</item>
+        <item name="android:statusBarColor">@color/hdr_off_start</item>
+        <item name="android:navigationBarColor">@color/screen_bg</item>
         <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <style name="Section" parent="TextAppearance.Material3.LabelLarge">
+        <item name="android:textColor">@color/brand</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.08</item>
+        <item name="android:paddingBottom">12dp</item>
+    </style>
+
+    <style name="Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">@color/card_bg</item>
+        <item name="cardCornerRadius">22dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeWidth">1dp</item>
+        <item name="strokeColor">@color/card_stroke</item>
+    </style>
+
+    <style name="Hint" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/text_secondary</item>
     </style>
 </resources>

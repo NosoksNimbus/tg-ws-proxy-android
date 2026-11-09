@@ -37,9 +37,30 @@ object Settings {
     fun autostart(ctx: Context): Boolean = prefs(ctx).getBoolean("autostart", false)
     fun verbose(ctx: Context): Boolean = prefs(ctx).getBoolean("verbose", false)
 
+    /** Hold a partial wake lock while the proxy runs (keeps the radio path alive in Doze). */
+    fun keepAwake(ctx: Context): Boolean = prefs(ctx).getBoolean("keep_awake", true)
+
+    // --- state shared between service, boot receiver and UI ---
+    fun wantRunning(ctx: Context): Boolean = prefs(ctx).getBoolean("want_running", false)
+    fun setWantRunning(ctx: Context, v: Boolean) =
+        prefs(ctx).edit().putBoolean("want_running", v).apply()
+
+    // --- updates ---
+    fun autoUpdate(ctx: Context): Boolean = prefs(ctx).getBoolean("auto_update", true)
+    fun updateWifiOnly(ctx: Context): Boolean = prefs(ctx).getBoolean("update_wifi_only", true)
+    fun lastUpdateCheck(ctx: Context): Long = prefs(ctx).getLong("update_last_check", 0L)
+    fun setLastUpdateCheck(ctx: Context, t: Long) =
+        prefs(ctx).edit().putLong("update_last_check", t).apply()
+
+    /** Last release seen on GitHub that is newer than this build (JSON), or null. */
+    fun updateInfo(ctx: Context): String? = prefs(ctx).getString("update_info", null)
+    fun setUpdateInfo(ctx: Context, json: String?) =
+        prefs(ctx).edit().putString("update_info", json).apply()
+
     fun save(
         ctx: Context, port: Int, secret: String, dcIp: String, cfWorker: String,
         cfproxy: Boolean, autostart: Boolean, verbose: Boolean,
+        keepAwake: Boolean, autoUpdate: Boolean, updateWifiOnly: Boolean,
     ) {
         prefs(ctx).edit()
             .putInt("port", port)
@@ -49,6 +70,9 @@ object Settings {
             .putBoolean("cfproxy", cfproxy)
             .putBoolean("autostart", autostart)
             .putBoolean("verbose", verbose)
+            .putBoolean("keep_awake", keepAwake)
+            .putBoolean("auto_update", autoUpdate)
+            .putBoolean("update_wifi_only", updateWifiOnly)
             .apply()
     }
 

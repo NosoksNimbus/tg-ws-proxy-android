@@ -1,29 +1,78 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">TG WS Proxy</string>
-    <string name="status_running">Proxy is running on 127.0.0.1:%1$d</string>
-    <string name="status_stopped">Proxy is stopped</string>
-    <string name="start">Start</string>
-    <string name="stop">Stop</string>
+
+    <!-- status -->
+    <string name="state_off">Disabled</string>
+    <string name="state_on">Connected</string>
+    <string name="state_starting">Starting…</string>
+    <string name="state_error">Error</string>
+    <string name="state_off_hint">Tap the button to start the proxy</string>
+    <string name="state_on_hint">Telegram → 127.0.0.1:%1$d</string>
+    <string name="chip_core">core %1$s</string>
+
+    <!-- actions -->
     <string name="open_in_telegram">Add to Telegram</string>
     <string name="copy_link">Copy link</string>
     <string name="link_copied">Link copied</string>
     <string name="no_telegram">Telegram is not installed</string>
+
+    <!-- connection -->
+    <string name="sec_connection">Connection</string>
     <string name="port">Port</string>
     <string name="secret">Secret (32 hex chars)</string>
-    <string name="dc_ip">DC IPs (one per line, DC:IP)</string>
+    <string name="secret_new">New secret</string>
+    <string name="dc_ip">Datacenter IPs (DC:IP, one per line)</string>
+    <string name="invalid_port">Port must be 1024–65535</string>
+    <string name="invalid_secret">Exactly 32 hex characters</string>
+
+    <!-- fallback -->
+    <string name="sec_fallback">Fallback routes</string>
     <string name="cfproxy">Cloudflare proxy fallback</string>
-    <string name="cf_worker">Cloudflare Worker domains (comma-separated)</string>
-    <string name="cf_worker_hint">Fallback only: used when the direct connection to Telegram fails. Leave empty to disable.</string>
+    <string name="cf_worker">Cloudflare Worker domains</string>
+    <string name="cf_worker_hint">Fallback only: used when the direct connection to Telegram fails. Empty = off.</string>
+
+    <!-- system -->
+    <string name="sec_system">Stability</string>
+    <string name="keep_awake">Keep phone awake while running</string>
+    <string name="keep_awake_hint">Wake lock helps on mobile networks in sleep mode, uses a bit more battery.</string>
     <string name="autostart">Start on boot</string>
     <string name="verbose">Verbose log</string>
-    <string name="regen_secret">New secret</string>
     <string name="battery">Disable battery optimization</string>
+
+    <!-- updates -->
+    <string name="sec_updates">Updates</string>
+    <string name="version_line">Version %1$s · core %2$s</string>
+    <string name="update_checked_never">Not checked yet</string>
+    <string name="update_checked_at">Checked %1$s</string>
+    <string name="update_up_to_date">You have the latest version</string>
+    <string name="update_available">Update %1$s available</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_install">Install %1$s</string>
+    <string name="update_download_install">Download and install %1$s</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_downloading">Downloading… %1$d%%</string>
+    <string name="update_auto">Update automatically</string>
+    <string name="update_wifi_only">Download only over Wi-Fi</string>
+    <string name="update_check_failed">Could not check for updates</string>
+    <string name="update_allow_install">Allow installing from this app, then tap Install again</string>
+    <string name="update_failed">Update failed: %1$s</string>
+    <string name="update_available_title">Update %1$s available</string>
+    <string name="update_ready_title">Update is ready</string>
+    <string name="update_tap_install">Tap to install</string>
+    <string name="update_tap_download">Tap to download and install</string>
+
+    <!-- log -->
     <string name="logs">Log</string>
-    <string name="invalid_port">Port must be 1024–65535</string>
+    <string name="logs_copy">Copy log</string>
+    <string name="logs_empty">Log is empty</string>
+
+    <!-- notifications -->
     <string name="notif_channel">Proxy service</string>
+    <string name="notif_channel_updates">App updates</string>
     <string name="notif_title">TG WS Proxy is running</string>
     <string name="notif_text">Listening on 127.0.0.1:%1$d</string>
     <string name="notif_stop">Stop</string>
-    <string name="hint">Settings changes apply on the next start.</string>
+
+    <string name="hint">Settings apply on the next start.</string>
 </resources>
