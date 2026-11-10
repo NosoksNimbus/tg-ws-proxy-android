@@ -19,6 +19,7 @@ from proxy import __version__
 from proxy import raw_websocket, tg_ws_proxy
 from proxy.config import coerce_domain_list, parse_dc_ip_list, proxy_config
 from proxy.tg_ws_proxy import _run
+from proxy.stats import stats
 from proxy.utils import DomainCensorFilter, get_link_host
 
 log = logging.getLogger("tg-mtproto-proxy")
@@ -29,8 +30,8 @@ DEFAULTS = {
     "secret": "",
     "dc_ip": ["2:149.154.167.220", "4:149.154.167.220"],
     "verbose": False,
-    "buf_kb": 256,
-    "pool_size": 4,
+    "buf_kb": 512,
+    "pool_size": 6,
     "cfproxy": True,
     "h2": True,
     "cfproxy_user_domain": [],
@@ -188,9 +189,8 @@ def link(cfg_json: str = "") -> str:
     secret = cfg["secret"]
     ftls = (cfg.get("fake_tls_domain") or "").strip()
     if ftls:
+        # Fake-TLS links need the "ee" marker plus the hex-encoded SNI domain.
         secret = "ee" + secret + ftls.encode("ascii").hex()
-    else:
-        secret = "dd" + secret
     return "tg://proxy?server=%s&port=%s&secret=%s" % (host, cfg["port"], secret)
 
 
@@ -248,12 +248,14 @@ def _patch_sockets() -> None:
 _patch_sockets()
 
 
-def network_changed() -> None:
+def network_changed(hard: bool = True) -> None:
     """Called from Kotlin when the default network switched or came back.
 
-    Drops pooled upstream sockets (they belong to the old network) and the
-    active client sessions, so Telegram reconnects immediately instead of
-    waiting for TCP timeouts, then warms the pools up again.
+    Always drops pooled upstream sockets (they may belong to a dead path) and
+    warms the pools up again. With ``hard`` (the network really changed, e.g.
+    LTE <-> Wi-Fi) it also closes active client sessions so Telegram reconnects
+    at once instead of waiting for TCP timeouts. A brief blip on the *same*
+    network is ``soft``: live sessions usually survive it, so we keep them.
     """
     stopper = _async_stop
     if stopper is None:
@@ -267,16 +269,35 @@ def network_changed() -> None:
         reset_tcp_backoff()
         ws_pool.reset()
         cf_worker_pool.reset()
-        for task in list(tg_ws_proxy._client_tasks):
-            task.cancel()
+        if hard:
+            for task in list(tg_ws_proxy._client_tasks):
+                task.cancel()
         await ws_pool.warmup()
         await cf_worker_pool.warmup()
-        log.info("Network changed: connections reset, pools warming up")
+        log.info("Network %s: pools reset%s", "changed" if hard else "blip",
+                 ", sessions dropped" if hard else "")
 
     try:
         asyncio.run_coroutine_threadsafe(_reset(), loop)
     except RuntimeError:
         pass
+
+
+def get_stats() -> str:
+    """Cheap JSON snapshot for the UI (speed meter and diagnostics)."""
+    pool_total = stats.pool_hits + stats.pool_misses
+    return json.dumps({
+        "up": stats.bytes_up,
+        "down": stats.bytes_down,
+        "active": stats.connections_active,
+        "total": stats.connections_total,
+        "ws": stats.connections_ws,
+        "cf": stats.connections_cfproxy,
+        "tcp": stats.connections_tcp_fallback,
+        "errors": stats.ws_errors,
+        "pool_hits": stats.pool_hits,
+        "pool_total": pool_total,
+    })
 
 
 def core_version() -> str:

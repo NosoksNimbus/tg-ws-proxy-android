@@ -3,7 +3,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/screen_bg"
+    android:background="@color/bg"
     android:fillViewport="true"
     android:overScrollMode="never">
 
@@ -12,18 +12,18 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- ============ header ============ -->
+        <!-- ================= hero ================= -->
         <LinearLayout
             android:id="@+id/header"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_header_off"
+            android:background="@drawable/bg_glow_top"
             android:gravity="center_horizontal"
             android:orientation="vertical"
             android:paddingStart="20dp"
-            android:paddingTop="20dp"
+            android:paddingTop="16dp"
             android:paddingEnd="20dp"
-            android:paddingBottom="32dp">
+            android:paddingBottom="8dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -35,9 +35,11 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:letterSpacing="0.2"
                     android:text="@string/app_name"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
-                    android:textColor="@android:color/white"
+                    android:textAllCaps="true"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
@@ -45,19 +47,20 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:background="@drawable/bg_chip"
+                    android:fontFamily="monospace"
                     android:paddingStart="10dp"
                     android:paddingTop="4dp"
                     android:paddingEnd="10dp"
                     android:paddingBottom="4dp"
-                    android:textAppearance="@style/TextAppearance.Material3.LabelMedium"
-                    android:textColor="@android:color/white" />
+                    android:textColor="@color/neon_cyan"
+                    android:textSize="11sp" />
             </LinearLayout>
 
             <FrameLayout
                 android:id="@+id/power"
-                android:layout_width="176dp"
-                android:layout_height="176dp"
-                android:layout_marginTop="24dp"
+                android:layout_width="220dp"
+                android:layout_height="220dp"
+                android:layout_marginTop="12dp"
                 android:clickable="true"
                 android:contentDescription="@string/state_off"
                 android:focusable="true">
@@ -67,73 +70,139 @@
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
                     android:alpha="0"
-                    android:background="@drawable/bg_halo" />
+                    android:background="@drawable/bg_halo_on" />
 
-                <FrameLayout
-                    android:id="@+id/power_bg"
-                    android:layout_width="124dp"
-                    android:layout_height="124dp"
+                <View
+                    android:id="@+id/ring"
+                    android:layout_width="156dp"
+                    android:layout_height="156dp"
                     android:layout_gravity="center"
-                    android:background="@drawable/bg_power_off">
+                    android:background="@drawable/bg_power_ring_off" />
 
-                    <ImageView
-                        android:id="@+id/power_icon"
-                        android:layout_width="52dp"
-                        android:layout_height="52dp"
-                        android:layout_gravity="center"
-                        android:importantForAccessibility="no"
-                        android:src="@drawable/ic_power" />
-                </FrameLayout>
+                <View
+                    android:layout_width="136dp"
+                    android:layout_height="136dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/bg_power_core" />
+
+                <ImageView
+                    android:id="@+id/power_icon"
+                    android:layout_width="52dp"
+                    android:layout_height="52dp"
+                    android:layout_gravity="center"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_power" />
             </FrameLayout>
 
             <TextView
                 android:id="@+id/status_title"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
                 android:text="@string/state_off"
-                android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
-                android:textColor="@android:color/white"
+                android:textColor="@color/text_secondary"
+                android:textSize="26sp"
                 android:textStyle="bold" />
 
             <TextView
                 android:id="@+id/status_hint"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
+                android:layout_marginTop="2dp"
                 android:gravity="center"
                 android:text="@string/state_off_hint"
-                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                android:textColor="#CCFFFFFF" />
+                android:textColor="@color/text_secondary"
+                android:textSize="13sp" />
+
+            <!-- live speed -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:gravity="center"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_arrow_down" />
+
+                <TextView
+                    android:id="@+id/speed_down"
+                    style="@style/Mono"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/speed_idle" />
+
+                <Space
+                    android:layout_width="28dp"
+                    android:layout_height="1dp" />
+
+                <ImageView
+                    android:layout_width="16dp"
+                    android:layout_height="16dp"
+                    android:importantForAccessibility="no"
+                    android:src="@drawable/ic_arrow_up" />
+
+                <TextView
+                    android:id="@+id/speed_up"
+                    style="@style/Mono"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:text="@string/speed_idle" />
+            </LinearLayout>
+
+            <org.flowseal.tgwsproxy.SparkView
+                android:id="@+id/spark"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginTop="8dp" />
+
+            <TextView
+                android:id="@+id/diag"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:fontFamily="monospace"
+                android:gravity="center"
+                android:text="@string/diag_off"
+                android:textColor="@color/text_secondary"
+                android:textSize="11sp" />
         </LinearLayout>
 
-        <!-- ============ content ============ -->
+        <!-- ================= content ================= -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:paddingStart="16dp"
-            android:paddingTop="16dp"
+            android:paddingTop="12dp"
             android:paddingEnd="16dp"
-            android:paddingBottom="24dp">
+            android:paddingBottom="28dp">
 
-            <!-- quick actions -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_open_tg"
                 android:layout_width="match_parent"
-                android:layout_height="60dp"
+                android:layout_height="58dp"
                 android:text="@string/open_in_telegram"
+                android:textColor="@color/on_neon"
                 android:textSize="16sp"
-                app:cornerRadius="18dp" />
+                android:textStyle="bold"
+                app:backgroundTint="@color/neon_cyan"
+                app:cornerRadius="16dp" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btn_copy"
-                style="@style/Widget.Material3.Button.TonalButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="8dp"
                 android:text="@string/copy_link"
-                app:cornerRadius="18dp" />
+                android:textColor="@color/neon_cyan"
+                app:cornerRadius="16dp"
+                app:strokeColor="@color/neon_cyan" />
 
             <!-- connection -->
             <com.google.android.material.card.MaterialCardView
@@ -205,12 +274,28 @@
                             android:typeface="monospace" />
                     </com.google.android.material.textfield.TextInputLayout>
 
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/til_pool"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:hint="@string/pool_size">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/pool_size"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:importantForAutofill="no"
+                            android:inputType="number" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
                     <TextView
                         style="@style/Hint"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
-                        android:text="@string/hint" />
+                        android:layout_marginTop="8dp"
+                        android:text="@string/pool_size_hint" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -315,7 +400,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:text="@string/battery" />
+                        android:text="@string/battery"
+                        app:cornerRadius="14dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -342,7 +428,9 @@
                         android:id="@+id/update_version"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.Material3.TitleSmall" />
+                        android:fontFamily="monospace"
+                        android:textColor="@color/text_primary"
+                        android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/update_status"
@@ -358,6 +446,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:max="100"
+                        android:progressTint="@color/neon_cyan"
                         android:visibility="gone" />
 
                     <com.google.android.material.button.MaterialButton
@@ -365,7 +454,10 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="12dp"
-                        android:visibility="gone" />
+                        android:textColor="@color/on_neon"
+                        android:visibility="gone"
+                        app:backgroundTint="@color/neon_green"
+                        app:cornerRadius="14dp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_update_check"
@@ -373,7 +465,8 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
-                        android:text="@string/update_check" />
+                        android:text="@string/update_check"
+                        app:cornerRadius="14dp" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/auto_update"
@@ -423,7 +516,6 @@
                             android:id="@+id/log_body"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
                             android:background="@drawable/bg_log"
                             android:padding="12dp"
                             android:textColor="@color/log_text"

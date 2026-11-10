@@ -9,6 +9,7 @@ import java.security.SecureRandom
 /** Persistent app settings; serialised to the JSON that android_entry.py expects. */
 object Settings {
     const val DEFAULT_PORT = 1443
+    const val DEFAULT_POOL = 6
     const val DEFAULT_DC_IP = "2:149.154.167.220\n4:149.154.167.220"
 
     private fun prefs(ctx: Context): SharedPreferences =
@@ -33,6 +34,8 @@ object Settings {
 
     fun dcIp(ctx: Context): String = prefs(ctx).getString("dc_ip", DEFAULT_DC_IP) ?: DEFAULT_DC_IP
     fun cfproxy(ctx: Context): Boolean = prefs(ctx).getBoolean("cfproxy", true)
+    /** Pre-opened upstream sockets per DC. Bursts above this fall back to slower routes. */
+    fun poolSize(ctx: Context): Int = prefs(ctx).getInt("pool_size", DEFAULT_POOL)
     fun cfWorker(ctx: Context): String = prefs(ctx).getString("cf_worker", "") ?: ""
     fun autostart(ctx: Context): Boolean = prefs(ctx).getBoolean("autostart", false)
     fun verbose(ctx: Context): Boolean = prefs(ctx).getBoolean("verbose", false)
@@ -59,7 +62,7 @@ object Settings {
 
     fun save(
         ctx: Context, port: Int, secret: String, dcIp: String, cfWorker: String,
-        cfproxy: Boolean, autostart: Boolean, verbose: Boolean,
+        poolSize: Int, cfproxy: Boolean, autostart: Boolean, verbose: Boolean,
         keepAwake: Boolean, autoUpdate: Boolean, updateWifiOnly: Boolean,
     ) {
         prefs(ctx).edit()
@@ -67,6 +70,7 @@ object Settings {
             .putString("secret", secret)
             .putString("dc_ip", dcIp)
             .putString("cf_worker", cfWorker)
+            .putInt("pool_size", poolSize)
             .putBoolean("cfproxy", cfproxy)
             .putBoolean("autostart", autostart)
             .putBoolean("verbose", verbose)
@@ -76,8 +80,11 @@ object Settings {
             .apply()
     }
 
+    // The key handed to Telegram must be exactly the key shown in the form and used by
+    // the core. No "dd"/"ee" prefix: those are transport hints, and the user compares the
+    // key character by character ("dd" made every link look wrong).
     fun link(ctx: Context): String =
-        "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=dd${secret(ctx)}"
+        "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=${secret(ctx)}"
 
     fun toJson(ctx: Context): String {
         val dc = JSONArray()
@@ -93,6 +100,7 @@ object Settings {
             .put("dc_ip", dc)
             .put("cfproxy", cfproxy(ctx))
             .put("cfproxy_worker_domain", workers)
+            .put("pool_size", poolSize(ctx))
             .put("verbose", verbose(ctx))
             .toString()
     }

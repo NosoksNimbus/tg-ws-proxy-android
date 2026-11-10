@@ -1,30 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.TgWsProxy" parent="Theme.Material3.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/brand</item>
-        <item name="colorOnPrimary">@android:color/white</item>
-        <item name="colorPrimaryContainer">#CDEBFA</item>
-        <item name="colorOnPrimaryContainer">#00293C</item>
-        <item name="android:colorBackground">@color/screen_bg</item>
-        <item name="colorSurface">@color/card_bg</item>
+    <style name="Theme.TgWsProxy" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/neon_cyan</item>
+        <item name="colorOnPrimary">@color/on_neon</item>
+        <item name="colorPrimaryContainer">#0A3A46</item>
+        <item name="colorOnPrimaryContainer">#BFF6FF</item>
+        <item name="colorSecondary">@color/neon_violet</item>
+        <item name="colorSurface">@color/card</item>
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
-        <item name="colorOutline">@color/card_stroke</item>
-        <item name="android:statusBarColor">@color/hdr_off_start</item>
-        <item name="android:navigationBarColor">@color/screen_bg</item>
+        <item name="colorOutline">@color/field_stroke</item>
+        <item name="colorError">@color/neon_pink</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
         <item name="android:windowLightStatusBar">false</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_secondary</item>
     </style>
 
     <style name="Section" parent="TextAppearance.Material3.LabelLarge">
-        <item name="android:textColor">@color/brand</item>
+        <item name="android:textColor">@color/neon_cyan</item>
         <item name="android:textAllCaps">true</item>
-        <item name="android:letterSpacing">0.08</item>
-        <item name="android:paddingBottom">12dp</item>
+        <item name="android:letterSpacing">0.14</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:paddingBottom">14dp</item>
     </style>
 
     <style name="Card" parent="Widget.Material3.CardView.Filled">
-        <item name="cardBackgroundColor">@color/card_bg</item>
-        <item name="cardCornerRadius">22dp</item>
+        <item name="cardBackgroundColor">@color/card</item>
+        <item name="cardCornerRadius">20dp</item>
         <item name="cardElevation">0dp</item>
         <item name="strokeWidth">1dp</item>
         <item name="strokeColor">@color/card_stroke</item>
@@ -32,5 +38,10 @@
 
     <style name="Hint" parent="TextAppearance.Material3.BodySmall">
         <item name="android:textColor">@color/text_secondary</item>
+    </style>
+
+    <style name="Mono" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/text_primary</item>
     </style>
 </resources>

@@ -52,6 +52,7 @@ class ProxyService : Service() {
         @Volatile var running = false
         @Volatile var lastError = ""
 
+        @Synchronized
         fun python(ctx: Context): Python {
             if (!Python.isStarted()) Python.start(AndroidPlatform(ctx.applicationContext))
             return Python.getInstance()
@@ -76,6 +77,7 @@ class ProxyService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var netCallback: ConnectivityManager.NetworkCallback? = null
     @Volatile private var lastNet: Network? = null
+    @Volatile private var lostNet: Network? = null
     @Volatile private var netLost = false
     @Volatile private var lastNetReset = 0L
 
@@ -224,15 +226,20 @@ class ProxyService : Service() {
             override fun onAvailable(network: Network) {
                 val prev = lastNet
                 lastNet = network
-                // First callback after registering only reports the current network.
-                if ((prev != null && prev != network) || netLost) {
+                // The first callback after registering only reports the current network.
+                if (prev != null && prev != network) {
                     netLost = false
-                    onNetworkSwitched()
+                    onNetworkSwitched(hard = true)
+                } else if (netLost) {
+                    netLost = false
+                    // Same network back after a blip: keep live sessions, refresh the pools.
+                    onNetworkSwitched(hard = lostNet != network)
                 }
             }
 
             override fun onLost(network: Network) {
                 if (lastNet == network) {
+                    lostNet = network
                     lastNet = null
                     netLost = true
                 }
@@ -255,14 +262,14 @@ class ProxyService : Service() {
         }
     }
 
-    private fun onNetworkSwitched() {
+    private fun onNetworkSwitched(hard: Boolean) {
         val now = System.currentTimeMillis()
         if (now - lastNetReset < NET_RESET_GAP_MS) return
         lastNetReset = now
         thread(name = "proxy-netreset") {
             try {
                 if (running) {
-                    Python.getInstance().getModule("android_entry").callAttr("network_changed")
+                    Python.getInstance().getModule("android_entry").callAttr("network_changed", hard)
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "network_changed failed: $e")

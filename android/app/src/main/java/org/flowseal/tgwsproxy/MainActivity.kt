@@ -11,6 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
+import android.os.HandlerThread
 import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings as AndroidSettings
@@ -26,6 +27,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.chaquo.python.Python
+import org.json.JSONObject
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputLayout
@@ -41,11 +43,16 @@ class MainActivity : AppCompatActivity() {
     private enum class UiState { OFF, STARTING, ON, ERROR }
 
     // views
-    private lateinit var header: View
     private lateinit var power: View
-    private lateinit var powerBg: View
+    private lateinit var ring: View
     private lateinit var powerIcon: ImageView
     private lateinit var halo: View
+    private lateinit var speedDown: TextView
+    private lateinit var speedUp: TextView
+    private lateinit var spark: SparkView
+    private lateinit var diag: TextView
+    private lateinit var poolSize: EditText
+    private lateinit var tilPool: TextInputLayout
     private lateinit var statusTitle: TextView
     private lateinit var statusHint: TextView
     private lateinit var port: EditText
@@ -70,27 +77,79 @@ class MainActivity : AppCompatActivity() {
 
     private val ui = Handler(Looper.getMainLooper())
     private val bg = Executors.newSingleThreadExecutor()
+    private var spin: ValueAnimator? = null
     private var pulse: ValueAnimator? = null
     private var startingSince = 0L
     private var shownState: UiState? = null
     @Volatile private var updateBusy = false
+    @Volatile private var logOpen = false
 
-    private val tick = object : Runnable {
+    // --- background poller: every Python call stays OFF the UI thread ---
+    private var pollThread: HandlerThread? = null
+    private var pollHandler: Handler? = null
+    private var lastDown = -1L
+    private var lastUp = -1L
+    private var lastT = 0L
+
+    private class Snapshot(val stats: JSONObject?, val log: String?)
+
+    private val pollTask = object : Runnable {
         override fun run() {
-            refresh()
-            ui.postDelayed(this, 1000)
+            val h = pollHandler ?: return
+            val snap = collect()
+            ui.post { render(snap) }
+            h.postDelayed(this, 1000)
         }
+    }
+
+    private fun collect(): Snapshot {
+        var stats: JSONObject? = null
+        var log: String? = null
+        if (Python.isStarted()) {
+            try {
+                val mod = Python.getInstance().getModule("android_entry")
+                if (ProxyService.running) {
+                    stats = JSONObject(mod.callAttr("get_stats").toString())
+                }
+                if (logOpen) {
+                    log = mod.callAttr("get_logs").toString()
+                        .lines().takeLast(80).joinToString("\n")
+                }
+            } catch (_: Throwable) {
+            }
+        }
+        return Snapshot(stats, log)
+    }
+
+    private fun startPolling() {
+        if (pollThread != null) return
+        val t = HandlerThread("ui-poll", android.os.Process.THREAD_PRIORITY_BACKGROUND).also { it.start() }
+        pollThread = t
+        pollHandler = Handler(t.looper).also { it.post(pollTask) }
+    }
+
+    private fun stopPolling() {
+        pollHandler?.removeCallbacksAndMessages(null)
+        pollThread?.quitSafely()
+        pollThread = null
+        pollHandler = null
+        lastT = 0L
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        header = findViewById(R.id.header)
         power = findViewById(R.id.power)
-        powerBg = findViewById(R.id.power_bg)
+        ring = findViewById(R.id.ring)
         powerIcon = findViewById(R.id.power_icon)
         halo = findViewById(R.id.halo)
+        speedDown = findViewById(R.id.speed_down)
+        speedUp = findViewById(R.id.speed_up)
+        spark = findViewById(R.id.spark)
+        diag = findViewById(R.id.diag)
+        poolSize = findViewById(R.id.pool_size)
+        tilPool = findViewById(R.id.til_pool)
         statusTitle = findViewById(R.id.status_title)
         statusHint = findViewById(R.id.status_hint)
         port = findViewById(R.id.port)
@@ -119,6 +178,7 @@ class MainActivity : AppCompatActivity() {
         port.setText(Settings.port(this).toString())
         secret.setText(Settings.secret(this))
         dcIp.setText(Settings.dcIp(this))
+        poolSize.setText(Settings.poolSize(this).toString())
         cfWorker.setText(Settings.cfWorker(this))
         cfproxy.isChecked = Settings.cfproxy(this)
         keepAwake.isChecked = Settings.keepAwake(this)
@@ -133,7 +193,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_copy).setOnClickListener { copyLink() }
         findViewById<View>(R.id.btn_battery).setOnClickListener { requestIgnoreBattery() }
         findViewById<View>(R.id.log_toggle).setOnClickListener {
-            logBox.visibility = if (logBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+            val open = logBox.visibility != View.VISIBLE
+            logBox.visibility = if (open) View.VISIBLE else View.GONE
+            logOpen = open
         }
         findViewById<View>(R.id.btn_log_copy).setOnClickListener { copyLog() }
 
@@ -166,15 +228,14 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         visible = true
-        ui.post(tick)
+        startPolling()
         handleUpdateIntent()
     }
 
     override fun onPause() {
         visible = false
-        ui.removeCallbacks(tick)
-        pulse?.cancel()
-        pulse = null
+        stopPolling()
+        stopAnimations()
         shownState = null
         super.onPause()
     }
@@ -210,10 +271,18 @@ class MainActivity : AppCompatActivity() {
         }
         tilSecret.error = null
         if (secret.text.toString() != s) secret.setText(s)
+        val pool = poolSize.text.toString().trim().toIntOrNull()
+        if (pool == null || pool !in 1..16) {
+            tilPool.error = getString(R.string.invalid_pool)
+            poolSize.requestFocus()
+            Toast.makeText(this, R.string.invalid_pool, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        tilPool.error = null
 
         val before = Settings.toJson(this)
         Settings.save(
-            this, p, s, dcIp.text.toString(), cfWorker.text.toString(),
+            this, p, s, dcIp.text.toString(), cfWorker.text.toString(), pool,
             cfproxy.isChecked, autostart.isChecked, verbose.isChecked,
             keepAwake.isChecked, autoUpdate.isChecked, wifiOnly.isChecked,
         )
@@ -238,7 +307,7 @@ class MainActivity : AppCompatActivity() {
         startingSince = System.currentTimeMillis()
         ContextCompat.startForegroundService(
             this, Intent(this, ProxyService::class.java).setAction(ProxyService.ACTION_START))
-        refresh()
+        render(Snapshot(null, null))
     }
 
     private fun stopProxy() {
@@ -286,15 +355,19 @@ class MainActivity : AppCompatActivity() {
 
     // ---- status rendering -----------------------------------------------------------
 
-    private fun refresh() {
-        val running = ProxyService.running
+    private fun currentState(): UiState {
         val err = ProxyService.lastError
-        val state = when {
-            running -> UiState.ON
+        return when {
+            ProxyService.running -> UiState.ON
             err.isNotEmpty() -> UiState.ERROR
-            System.currentTimeMillis() - startingSince < 20_000 && startingSince > 0 -> UiState.STARTING
+            startingSince > 0 && System.currentTimeMillis() - startingSince < 20_000 -> UiState.STARTING
             else -> UiState.OFF
         }
+    }
+
+    /** Runs on the UI thread with a snapshot gathered by the poller thread. */
+    private fun render(snap: Snapshot) {
+        val state = currentState()
         if (state == UiState.ON) startingSince = 0
 
         when (state) {
@@ -308,7 +381,7 @@ class MainActivity : AppCompatActivity() {
             }
             UiState.ERROR -> {
                 statusTitle.setText(R.string.state_error)
-                statusHint.text = err
+                statusHint.text = ProxyService.lastError
             }
             UiState.OFF -> {
                 statusTitle.setText(R.string.state_off)
@@ -319,41 +392,80 @@ class MainActivity : AppCompatActivity() {
             shownState = state
             applyStateStyle(state)
         }
-        refreshLog()
+
+        renderTraffic(snap.stats)
+        snap.log?.let { logBody.text = it }
+    }
+
+    private fun renderTraffic(st: JSONObject?) {
+        if (st == null) {
+            if (lastT != 0L) spark.clear()
+            lastT = 0L
+            speedDown.setText(R.string.speed_idle)
+            speedUp.setText(R.string.speed_idle)
+            diag.setText(R.string.diag_off)
+            return
+        }
+        val now = System.nanoTime()
+        val down = st.optLong("down")
+        val up = st.optLong("up")
+        if (lastT != 0L) {
+            val dt = (now - lastT) / 1e9
+            if (dt > 0.2) {
+                val dRate = maxOf(0L, down - lastDown) / dt
+                val uRate = maxOf(0L, up - lastUp) / dt
+                speedDown.text = fmtRate(dRate)
+                speedUp.text = fmtRate(uRate)
+                spark.push(dRate.toFloat())
+            }
+        }
+        lastT = now
+        lastDown = down
+        lastUp = up
+
+        val total = st.optLong("pool_total")
+        val pool = if (total > 0) "${st.optLong("pool_hits") * 100 / total}%" else "—"
+        diag.text = getString(
+            R.string.diag_line,
+            st.optInt("active"), st.optInt("ws"), st.optInt("cf"), st.optInt("tcp"), pool)
+    }
+
+    private fun fmtRate(bps: Double): String = when {
+        bps >= 1_048_576 -> String.format("%.1f MB/s", bps / 1_048_576)
+        bps >= 1024 -> String.format("%.0f KB/s", bps / 1024)
+        else -> String.format("%.0f B/s", bps)
     }
 
     private fun applyStateStyle(state: UiState) {
-        val on = state == UiState.ON
-        header.setBackgroundResource(
+        val active = state == UiState.ON || state == UiState.STARTING
+        ring.setBackgroundResource(
             when (state) {
-                UiState.ON, UiState.STARTING -> R.drawable.bg_header_on
-                UiState.ERROR -> R.drawable.bg_header_err
-                UiState.OFF -> R.drawable.bg_header_off
+                UiState.ON, UiState.STARTING -> R.drawable.bg_power_ring_on
+                UiState.ERROR -> R.drawable.bg_power_ring_err
+                UiState.OFF -> R.drawable.bg_power_ring_off
             })
-        window.statusBarColor = ContextCompat.getColor(
+        halo.setBackgroundResource(
+            if (state == UiState.ERROR) R.drawable.bg_halo_err else R.drawable.bg_halo_on)
+        val accent = ContextCompat.getColor(
             this,
             when (state) {
-                UiState.ON, UiState.STARTING -> R.color.hdr_on_start
-                UiState.ERROR -> R.color.hdr_err_start
-                UiState.OFF -> R.color.hdr_off_start
+                UiState.ON, UiState.STARTING -> R.color.neon_cyan
+                UiState.ERROR -> R.color.neon_pink
+                UiState.OFF -> R.color.text_secondary
             })
-        powerBg.setBackgroundResource(if (on) R.drawable.bg_power_on else R.drawable.bg_power_off)
-        powerIcon.setColorFilter(
-            if (on) ContextCompat.getColor(this, R.color.brand_dark) else 0xFFFFFFFF.toInt())
+        statusTitle.setTextColor(accent)
+        powerIcon.setColorFilter(accent)
 
-        pulse?.cancel()
-        pulse = null
-        halo.alpha = 0f
-        halo.scaleX = 1f
-        halo.scaleY = 1f
-        if (on || state == UiState.STARTING) {
+        stopAnimations()
+        if (state == UiState.ON || state == UiState.STARTING || state == UiState.ERROR) {
+            halo.setLayerType(View.LAYER_TYPE_HARDWARE, null)
             pulse = ValueAnimator.ofFloat(0f, 1f).apply {
-                duration = if (on) 2200 else 1000
+                duration = when (state) { UiState.ON -> 2400; UiState.STARTING -> 1100; else -> 1600 }
                 repeatCount = ValueAnimator.INFINITE
                 interpolator = LinearInterpolator()
                 addUpdateListener {
                     val t = it.animatedValue as Float
-                    val s = 0.78f + 0.22f * t
+                    val s = 0.72f + 0.28f * t
                     halo.scaleX = s
                     halo.scaleY = s
                     halo.alpha = 1f - t
@@ -361,15 +473,27 @@ class MainActivity : AppCompatActivity() {
                 start()
             }
         }
+        if (active) {
+            ring.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            spin = ValueAnimator.ofFloat(0f, 360f).apply {
+                duration = if (state == UiState.ON) 7000 else 1800
+                repeatCount = ValueAnimator.INFINITE
+                interpolator = LinearInterpolator()
+                addUpdateListener { ring.rotation = it.animatedValue as Float }
+                start()
+            }
+        }
     }
 
-    private fun refreshLog() {
-        if (logBox.visibility != View.VISIBLE || !Python.isStarted()) return
-        try {
-            logBody.text = Python.getInstance().getModule("android_entry")
-                .callAttr("get_logs").toString().lines().takeLast(80).joinToString("\n")
-        } catch (_: Throwable) {
-        }
+    private fun stopAnimations() {
+        spin?.cancel(); spin = null
+        pulse?.cancel(); pulse = null
+        ring.rotation = 0f
+        ring.setLayerType(View.LAYER_TYPE_NONE, null)
+        halo.alpha = 0f
+        halo.scaleX = 1f
+        halo.scaleY = 1f
+        halo.setLayerType(View.LAYER_TYPE_NONE, null)
     }
 
     // ---- updates -------------------------------------------------------------------

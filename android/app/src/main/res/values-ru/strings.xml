@@ -76,4 +76,12 @@
 
     <string name="restarted_applied">Прокси перезапущен с новыми настройками</string>
     <string name="hint">Изменения настроек применяются при следующем запуске.</string>
+
+    <!-- neon dashboard -->
+    <string name="speed_idle">—</string>
+    <string name="diag_off">Запустите прокси, чтобы увидеть трафик</string>
+    <string name="diag_line">Сессий %1$d · WS %2$d · CF %3$d · TCP %4$d · пул %5$s</string>
+    <string name="pool_size">Пул соединений (на DC)</string>
+    <string name="pool_size_hint">Больше заранее открытых сокетов — меньше медленных обходных путей, когда Telegram открывает много соединений сразу (1–16).</string>
+    <string name="invalid_pool">Размер пула должен быть 1–16</string>
 </resources>
