@@ -9,8 +9,11 @@ import java.security.SecureRandom
 /** Persistent app settings; serialised to the JSON that android_entry.py expects. */
 object Settings {
     const val DEFAULT_PORT = 1443
-    const val DEFAULT_POOL = 6
+    const val DEFAULT_POOL = 8
+    // Upstream default: DC2 and DC4 use the direct WebSocket endpoint.
     const val DEFAULT_DC_IP = "2:149.154.167.220\n4:149.154.167.220"
+    // Previous default (all five DCs on one IP); migrated to the new default on read.
+    private const val LEGACY_DC_IP = "1:149.154.167.220\n2:149.154.167.220\n3:149.154.167.220\n4:149.154.167.220\n5:149.154.167.220"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences("proxy", Context.MODE_PRIVATE)
@@ -32,10 +35,24 @@ object Settings {
         return b.joinToString("") { "%02x".format(it) }
     }
 
-    fun dcIp(ctx: Context): String = prefs(ctx).getString("dc_ip", DEFAULT_DC_IP) ?: DEFAULT_DC_IP
+    fun dcIp(ctx: Context): String {
+        val saved = prefs(ctx).getString("dc_ip", null) ?: return DEFAULT_DC_IP
+        val t = saved.trim()
+        return if (t == LEGACY_DC_IP || t == "4:149.154.167.220") DEFAULT_DC_IP else saved
+    }
     fun cfproxy(ctx: Context): Boolean = prefs(ctx).getBoolean("cfproxy", true)
-    /** Pre-opened upstream sockets per DC. Bursts above this fall back to slower routes. */
-    fun poolSize(ctx: Context): Int = prefs(ctx).getInt("pool_size", DEFAULT_POOL)
+    /**
+     * Pre-opened upstream sockets per DC. Bursts above this fall back to slower routes.
+     * [poolMobile] is the general value; [poolWifi] only applies with [profiles] enabled.
+     */
+    fun poolMobile(ctx: Context): Int =
+        prefs(ctx).getInt("pool_mobile", prefs(ctx).getInt("pool_size", DEFAULT_POOL))
+    fun poolWifi(ctx: Context): Int = prefs(ctx).getInt("pool_wifi", poolMobile(ctx))
+    fun profiles(ctx: Context): Boolean = prefs(ctx).getBoolean("profiles", false)
+
+    /** The pool size to use right now, following the current network when profiles are on. */
+    fun effectivePool(ctx: Context, net: Net = Net.current(ctx)): Int =
+        if (profiles(ctx) && net == Net.WIFI) poolWifi(ctx) else poolMobile(ctx)
     fun cfWorker(ctx: Context): String = prefs(ctx).getString("cf_worker", "") ?: ""
     fun autostart(ctx: Context): Boolean = prefs(ctx).getBoolean("autostart", false)
     fun verbose(ctx: Context): Boolean = prefs(ctx).getBoolean("verbose", false)
@@ -62,7 +79,7 @@ object Settings {
 
     fun save(
         ctx: Context, port: Int, secret: String, dcIp: String, cfWorker: String,
-        poolSize: Int, cfproxy: Boolean, autostart: Boolean, verbose: Boolean,
+        poolMobile: Int, poolWifi: Int, profiles: Boolean, cfproxy: Boolean, autostart: Boolean, verbose: Boolean,
         keepAwake: Boolean, autoUpdate: Boolean, updateWifiOnly: Boolean,
     ) {
         prefs(ctx).edit()
@@ -70,7 +87,9 @@ object Settings {
             .putString("secret", secret)
             .putString("dc_ip", dcIp)
             .putString("cf_worker", cfWorker)
-            .putInt("pool_size", poolSize)
+            .putInt("pool_mobile", poolMobile)
+            .putInt("pool_wifi", poolWifi)
+            .putBoolean("profiles", profiles)
             .putBoolean("cfproxy", cfproxy)
             .putBoolean("autostart", autostart)
             .putBoolean("verbose", verbose)
@@ -80,11 +99,8 @@ object Settings {
             .apply()
     }
 
-    // The key handed to Telegram must be exactly the key shown in the form and used by
-    // the core. No "dd"/"ee" prefix: those are transport hints, and the user compares the
-    // key character by character ("dd" made every link look wrong).
     fun link(ctx: Context): String =
-        "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=${secret(ctx)}"
+        "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=dd${secret(ctx)}"
 
     fun toJson(ctx: Context): String {
         val dc = JSONArray()
@@ -100,8 +116,64 @@ object Settings {
             .put("dc_ip", dc)
             .put("cfproxy", cfproxy(ctx))
             .put("cfproxy_worker_domain", workers)
-            .put("pool_size", poolSize(ctx))
+            .put("pool_size", effectivePool(ctx))
             .put("verbose", verbose(ctx))
             .toString()
+    }
+
+    // ---- backup ------------------------------------------------------------------
+
+    /** All user settings as pretty JSON (contains the secret!). */
+    fun exportJson(ctx: Context): String = JSONObject()
+        .put("app", "tg-ws-proxy-android")
+        .put("format", 1)
+        .put("port", port(ctx))
+        .put("secret", secret(ctx))
+        .put("dc_ip", dcIp(ctx))
+        .put("cf_worker", cfWorker(ctx))
+        .put("cfproxy", cfproxy(ctx))
+        .put("pool_mobile", poolMobile(ctx))
+        .put("pool_wifi", poolWifi(ctx))
+        .put("profiles", profiles(ctx))
+        .put("keep_awake", keepAwake(ctx))
+        .put("autostart", autostart(ctx))
+        .put("verbose", verbose(ctx))
+        .put("auto_update", autoUpdate(ctx))
+        .put("update_wifi_only", updateWifiOnly(ctx))
+        .toString(2)
+
+    /** Validates and applies exported settings. Returns null on success or an error text. */
+    fun importJson(ctx: Context, text: String): String? {
+        val o = try {
+            JSONObject(text)
+        } catch (e: Exception) {
+            return "not a JSON file"
+        }
+        if (o.optString("app") != "tg-ws-proxy-android") return "not a TG WS Proxy settings file"
+
+        val port = o.optInt("port", port(ctx))
+        if (port !in 1024..65535) return "bad port"
+        val secret = o.optString("secret", secret(ctx)).lowercase()
+        if (!Regex("[0-9a-f]{32}").matches(secret)) return "bad secret"
+        val pm = o.optInt("pool_mobile", poolMobile(ctx))
+        val pw = o.optInt("pool_wifi", poolWifi(ctx))
+        if (pm !in 1..16 || pw !in 1..16) return "bad pool size"
+
+        prefs(ctx).edit()
+            .putInt("port", port)
+            .putString("secret", secret)
+            .putString("dc_ip", o.optString("dc_ip", dcIp(ctx)))
+            .putString("cf_worker", o.optString("cf_worker", cfWorker(ctx)))
+            .putBoolean("cfproxy", o.optBoolean("cfproxy", cfproxy(ctx)))
+            .putInt("pool_mobile", pm)
+            .putInt("pool_wifi", pw)
+            .putBoolean("profiles", o.optBoolean("profiles", profiles(ctx)))
+            .putBoolean("keep_awake", o.optBoolean("keep_awake", keepAwake(ctx)))
+            .putBoolean("autostart", o.optBoolean("autostart", autostart(ctx)))
+            .putBoolean("verbose", o.optBoolean("verbose", verbose(ctx)))
+            .putBoolean("auto_update", o.optBoolean("auto_update", autoUpdate(ctx)))
+            .putBoolean("update_wifi_only", o.optBoolean("update_wifi_only", updateWifiOnly(ctx)))
+            .apply()
+        return null
     }
 }

@@ -16,6 +16,10 @@ import android.os.Looper
 import android.os.PowerManager
 import android.provider.Settings as AndroidSettings
 import android.text.format.DateUtils
+import android.graphics.Color
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.View
 import android.view.animation.LinearInterpolator
 import android.widget.EditText
@@ -23,11 +27,13 @@ import android.widget.ImageView
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.chaquo.python.Python
 import org.json.JSONObject
+import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.textfield.TextInputLayout
@@ -38,6 +44,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         /** True while the activity is on screen (used to decide how to show the install prompt). */
         @Volatile var visible = false
+        const val EXTRA_AUTO_START = "auto_start"
     }
 
     private enum class UiState { OFF, STARTING, ON, ERROR }
@@ -51,8 +58,17 @@ class MainActivity : AppCompatActivity() {
     private lateinit var speedUp: TextView
     private lateinit var spark: SparkView
     private lateinit var diag: TextView
-    private lateinit var poolSize: EditText
-    private lateinit var tilPool: TextInputLayout
+    private lateinit var poolMobile: EditText
+    private lateinit var tilPoolMobile: TextInputLayout
+    private lateinit var poolWifi: EditText
+    private lateinit var tilPoolWifi: TextInputLayout
+    private lateinit var profiles: MaterialSwitch
+    private lateinit var tabs: List<View>
+    private lateinit var nav: BottomNavigationView
+    private lateinit var checkResults: TextView
+    private lateinit var checkVerdict: TextView
+    private lateinit var checkProgress: View
+    private lateinit var btnCheck: MaterialButton
     private lateinit var statusTitle: TextView
     private lateinit var statusHint: TextView
     private lateinit var port: EditText
@@ -72,7 +88,6 @@ class MainActivity : AppCompatActivity() {
     private lateinit var updateProgress: ProgressBar
     private lateinit var btnUpdateCheck: MaterialButton
     private lateinit var btnUpdateInstall: MaterialButton
-    private lateinit var logBox: View
     private lateinit var logBody: TextView
 
     private val ui = Handler(Looper.getMainLooper())
@@ -82,7 +97,9 @@ class MainActivity : AppCompatActivity() {
     private var startingSince = 0L
     private var shownState: UiState? = null
     @Volatile private var updateBusy = false
-    @Volatile private var logOpen = false
+    @Volatile private var logOpen = false   // true while the "More" tab is on screen
+    private var checking = false
+    private var restoringTab = false
 
     // --- background poller: every Python call stays OFF the UI thread ---
     private var pollThread: HandlerThread? = null
@@ -148,8 +165,18 @@ class MainActivity : AppCompatActivity() {
         speedUp = findViewById(R.id.speed_up)
         spark = findViewById(R.id.spark)
         diag = findViewById(R.id.diag)
-        poolSize = findViewById(R.id.pool_size)
-        tilPool = findViewById(R.id.til_pool)
+        poolMobile = findViewById(R.id.pool_mobile)
+        tilPoolMobile = findViewById(R.id.til_pool_mobile)
+        poolWifi = findViewById(R.id.pool_wifi)
+        tilPoolWifi = findViewById(R.id.til_pool_wifi)
+        profiles = findViewById(R.id.profiles)
+        nav = findViewById(R.id.bottom_nav)
+        tabs = listOf(R.id.tab_home, R.id.tab_network, R.id.tab_settings, R.id.tab_more)
+            .map { findViewById<View>(it) }
+        checkResults = findViewById(R.id.check_results)
+        checkVerdict = findViewById(R.id.check_verdict)
+        checkProgress = findViewById(R.id.check_progress)
+        btnCheck = findViewById(R.id.btn_check)
         statusTitle = findViewById(R.id.status_title)
         statusHint = findViewById(R.id.status_hint)
         port = findViewById(R.id.port)
@@ -169,7 +196,6 @@ class MainActivity : AppCompatActivity() {
         updateProgress = findViewById(R.id.update_progress)
         btnUpdateCheck = findViewById(R.id.btn_update_check)
         btnUpdateInstall = findViewById(R.id.btn_update_install)
-        logBox = findViewById(R.id.log_box)
         logBody = findViewById(R.id.log_body)
 
         findViewById<TextView>(R.id.chip_version).text =
@@ -178,7 +204,10 @@ class MainActivity : AppCompatActivity() {
         port.setText(Settings.port(this).toString())
         secret.setText(Settings.secret(this))
         dcIp.setText(Settings.dcIp(this))
-        poolSize.setText(Settings.poolSize(this).toString())
+        poolMobile.setText(Settings.poolMobile(this).toString())
+        poolWifi.setText(Settings.poolWifi(this).toString())
+        profiles.isChecked = Settings.profiles(this)
+        applyProfileVisibility()
         cfWorker.setText(Settings.cfWorker(this))
         cfproxy.isChecked = Settings.cfproxy(this)
         keepAwake.isChecked = Settings.keepAwake(this)
@@ -192,12 +221,35 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btn_open_tg).setOnClickListener { openInTelegram() }
         findViewById<View>(R.id.btn_copy).setOnClickListener { copyLink() }
         findViewById<View>(R.id.btn_battery).setOnClickListener { requestIgnoreBattery() }
-        findViewById<View>(R.id.log_toggle).setOnClickListener {
-            val open = logBox.visibility != View.VISIBLE
-            logBox.visibility = if (open) View.VISIBLE else View.GONE
-            logOpen = open
-        }
         findViewById<View>(R.id.btn_log_copy).setOnClickListener { copyLog() }
+        findViewById<View>(R.id.btn_log_share).setOnClickListener { shareLog() }
+        findViewById<View>(R.id.btn_export).setOnClickListener {
+            exportLauncher.launch("tg-ws-proxy-settings.json")
+        }
+        findViewById<View>(R.id.btn_import).setOnClickListener {
+            importLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+        }
+        btnCheck.setOnClickListener { runCheck() }
+        findViewById<View>(R.id.btn_traffic_reset).setOnClickListener {
+            TrafficStore.reset(this)
+            renderTrafficTotals()
+            Toast.makeText(this, R.string.traffic_reset_done, Toast.LENGTH_SHORT).show()
+        }
+        profiles.setOnCheckedChangeListener { _, _ -> applyProfileVisibility(); saveQuiet() }
+
+        nav.setOnItemSelectedListener {
+            if (restoringTab) return@setOnItemSelectedListener true
+            val idx = when (it.itemId) {
+                R.id.nav_network -> 1
+                R.id.nav_settings -> 2
+                R.id.nav_more -> 3
+                else -> 0
+            }
+            showTab(idx, fromNav = true)
+            true
+        }
+        showTab(savedInstanceState?.getInt("tab") ?: 0)
+        renderTrafficTotals()
 
         // Update-related switches apply immediately.
         autoUpdate.setOnCheckedChangeListener { _, _ -> saveQuiet() }
@@ -219,6 +271,180 @@ class MainActivity : AppCompatActivity() {
         ) checkForUpdates(manual = false)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("tab", tabs.indexOfFirst { it.visibility == View.VISIBLE }.coerceAtLeast(0))
+    }
+
+    private fun showTab(i: Int, fromNav: Boolean = false) {
+        tabs.forEachIndexed { n, v -> v.visibility = if (n == i) View.VISIBLE else View.GONE }
+        // Selecting from code re-enters the item-selected listener, so only do it when the
+        // change did not come from the bar itself (restored state / first start).
+        if (!fromNav) {
+            val id = intArrayOf(R.id.nav_home, R.id.nav_network, R.id.nav_settings, R.id.nav_more)[i]
+            if (nav.selectedItemId != id) {
+                restoringTab = true
+                try { nav.selectedItemId = id } finally { restoringTab = false }
+            }
+        }
+        logOpen = i == 3
+        if (i == 1) renderTrafficTotals()
+    }
+
+    private fun applyProfileVisibility() {
+        tilPoolWifi.visibility = if (profiles.isChecked) View.VISIBLE else View.GONE
+    }
+
+    private val exportLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri == null) return@registerForActivityResult
+            try {
+                if (!saveForm()) return@registerForActivityResult
+                contentResolver.openOutputStream(uri)?.use {
+                    it.write(Settings.exportJson(this).toByteArray())
+                }
+                Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(this, getString(R.string.import_failed, e.message ?: "I/O"), Toast.LENGTH_LONG).show()
+            }
+        }
+
+    private val importLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri == null) return@registerForActivityResult
+            val text = try {
+                contentResolver.openInputStream(uri)?.use { String(it.readBytes()) } ?: ""
+            } catch (e: Exception) {
+                Toast.makeText(this, getString(R.string.import_failed, e.message ?: "I/O"), Toast.LENGTH_LONG).show()
+                return@registerForActivityResult
+            }
+            val before = Settings.toJson(this)
+            val err = Settings.importJson(this, text)
+            if (err != null) {
+                Toast.makeText(this, getString(R.string.import_failed, err), Toast.LENGTH_LONG).show()
+                return@registerForActivityResult
+            }
+            loadForm()
+            if (ProxyService.running && Settings.toJson(this) != before) {
+                startService(Intent(this, ProxyService::class.java).setAction(ProxyService.ACTION_RESTART))
+            }
+            Toast.makeText(this, R.string.import_done, Toast.LENGTH_SHORT).show()
+        }
+
+    /** Re-reads every form field from storage (after an import). */
+    private fun loadForm() {
+        port.setText(Settings.port(this).toString())
+        secret.setText(Settings.secret(this))
+        dcIp.setText(Settings.dcIp(this))
+        poolMobile.setText(Settings.poolMobile(this).toString())
+        poolWifi.setText(Settings.poolWifi(this).toString())
+        cfWorker.setText(Settings.cfWorker(this))
+        cfproxy.isChecked = Settings.cfproxy(this)
+        keepAwake.isChecked = Settings.keepAwake(this)
+        autostart.isChecked = Settings.autostart(this)
+        verbose.isChecked = Settings.verbose(this)
+        autoUpdate.isChecked = Settings.autoUpdate(this)
+        wifiOnly.isChecked = Settings.updateWifiOnly(this)
+        profiles.isChecked = Settings.profiles(this)
+        applyProfileVisibility()
+    }
+
+    // ---- connection check -----------------------------------------------------------
+
+    private fun runCheck() {
+        if (checking) return
+        if (!saveForm()) return
+        checking = true
+        btnCheck.isEnabled = false
+        btnCheck.setText(R.string.check_running)
+        checkProgress.visibility = View.VISIBLE
+        checkResults.visibility = View.GONE
+        checkVerdict.visibility = View.GONE
+        val cfg = Settings.toJson(this)
+        bg.execute {
+            var out: JSONObject? = null
+            var error: String? = null
+            try {
+                val mod = ProxyService.python(this).getModule("android_entry")
+                out = JSONObject(mod.callAttr("diagnose", cfg).toString())
+            } catch (e: Throwable) {
+                error = e.message ?: e.toString()
+            }
+            runOnUiThread {
+                checking = false
+                btnCheck.isEnabled = true
+                btnCheck.setText(R.string.check_run)
+                checkProgress.visibility = View.GONE
+                checkVerdict.visibility = View.VISIBLE
+                if (out == null) {
+                    checkVerdict.text = getString(R.string.check_failed, error ?: "?")
+                } else showCheck(out)
+            }
+        }
+    }
+
+    private fun showCheck(o: JSONObject) {
+        val good = ContextCompat.getColor(this, R.color.neon_cyan)
+        val bad = ContextCompat.getColor(this, R.color.neon_pink)
+        val sb = SpannableStringBuilder()
+        val arr = o.optJSONArray("results")
+        var ws = false; var cf = false; var tcp = false
+        if (arr != null) for (i in 0 until arr.length()) {
+            val r = arr.getJSONObject(i)
+            val name = r.optString("name")
+            val ok = r.optBoolean("ok")
+            if (ok) {
+                if (name.startsWith("WS")) ws = true
+                if (name.startsWith("CF")) cf = true
+                if (name.startsWith("TCP")) tcp = true
+            }
+            val start = sb.length
+            sb.append(if (ok) "✓ " else "✗ ").append(name).append("  ")
+            sb.append(if (ok) getString(R.string.check_ms, r.optInt("ms")) else r.optString("error"))
+            sb.setSpan(ForegroundColorSpan(if (ok) good else bad), start, start + 1,
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            sb.append('\n')
+        }
+        if (o.optBoolean("cf_needs_proxy")) sb.append(getString(R.string.check_cf_needs_proxy))
+        checkResults.text = sb
+        checkResults.visibility = View.VISIBLE
+        checkVerdict.setText(
+            when {
+                ws -> R.string.verdict_ws
+                cf -> R.string.verdict_cf
+                tcp -> R.string.verdict_tcp
+                else -> R.string.verdict_none
+            })
+    }
+
+    private fun renderTrafficTotals() {
+        val t = TrafficStore.today(this)
+        val m = TrafficStore.month(this)
+        fun line(d: Long, u: Long) = "↓ ${TrafficStore.format(d)}  ↑ ${TrafficStore.format(u)}"
+        findViewById<TextView>(R.id.t_today_m).text = line(t.mobDown, t.mobUp)
+        findViewById<TextView>(R.id.t_today_w).text = line(t.wifiDown, t.wifiUp)
+        findViewById<TextView>(R.id.t_month_m).text = line(m.mobDown, m.mobUp)
+        findViewById<TextView>(R.id.t_month_w).text = line(m.wifiDown, m.wifiUp)
+    }
+
+    private fun shareLog() {
+        val text = logBody.text.toString()
+        if (text.isBlank()) {
+            Toast.makeText(this, R.string.logs_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val head = buildString {
+            append("TG WS Proxy ${BuildConfig.VERSION_NAME} (core ${BuildConfig.CORE_VERSION})\n")
+            append("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}), ${Build.MANUFACTURER} ${Build.MODEL}\n")
+            append("Network: ${Net.current(this@MainActivity)}, pool ${Settings.effectivePool(this@MainActivity)}\n\n")
+        }
+        startActivity(Intent.createChooser(
+            Intent(Intent.ACTION_SEND).setType("text/plain")
+                .putExtra(Intent.EXTRA_SUBJECT, getString(R.string.share_title))
+                .putExtra(Intent.EXTRA_TEXT, head + text),
+            getString(R.string.share_title)))
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -230,6 +456,10 @@ class MainActivity : AppCompatActivity() {
         visible = true
         startPolling()
         handleUpdateIntent()
+        if (intent.getBooleanExtra(EXTRA_AUTO_START, false)) {
+            intent.removeExtra(EXTRA_AUTO_START)
+            if (!ProxyService.running) startProxy()
+        }
     }
 
     override fun onPause() {
@@ -271,19 +501,25 @@ class MainActivity : AppCompatActivity() {
         }
         tilSecret.error = null
         if (secret.text.toString() != s) secret.setText(s)
-        val pool = poolSize.text.toString().trim().toIntOrNull()
-        if (pool == null || pool !in 1..16) {
-            tilPool.error = getString(R.string.invalid_pool)
-            poolSize.requestFocus()
+        val pm = poolMobile.text.toString().trim().toIntOrNull()
+        if (pm == null || pm !in 1..16) {
+            tilPoolMobile.error = getString(R.string.invalid_pool)
             Toast.makeText(this, R.string.invalid_pool, Toast.LENGTH_SHORT).show()
             return false
         }
-        tilPool.error = null
+        tilPoolMobile.error = null
+        val pw = poolWifi.text.toString().trim().toIntOrNull() ?: pm
+        if (pw !in 1..16) {
+            tilPoolWifi.error = getString(R.string.invalid_pool)
+            Toast.makeText(this, R.string.invalid_pool, Toast.LENGTH_SHORT).show()
+            return false
+        }
+        tilPoolWifi.error = null
 
         val before = Settings.toJson(this)
         Settings.save(
-            this, p, s, dcIp.text.toString(), cfWorker.text.toString(), pool,
-            cfproxy.isChecked, autostart.isChecked, verbose.isChecked,
+            this, p, s, dcIp.text.toString(), cfWorker.text.toString(),
+            pm, pw, profiles.isChecked, cfproxy.isChecked, autostart.isChecked, verbose.isChecked,
             keepAwake.isChecked, autoUpdate.isChecked, wifiOnly.isChecked,
         )
         if (ProxyService.running && Settings.toJson(this) != before) {

@@ -29,8 +29,8 @@ class SparkView @JvmOverloads constructor(
     private val path = Path()
     private val area = Path()
 
-    private val cStart = 0xFF00E5FF.toInt()
-    private val cEnd = 0xFFB46BFF.toInt()
+    private val cStart = 0xFFFF4FA3.toInt()
+    private val cEnd = 0xFFFF9A3D.toInt()
 
     fun push(v: Float) {
         System.arraycopy(values, 1, values, 0, size - 1)
@@ -50,7 +50,7 @@ class SparkView @JvmOverloads constructor(
         line.shader = sh
         glow.shader = sh
         fill.shader = LinearGradient(
-            0f, 0f, 0f, h.toFloat(), 0x3300E5FF, 0x0000E5FF, Shader.TileMode.CLAMP)
+            0f, 0f, 0f, h.toFloat(), 0x33FF4FA3, 0x00FF4FA3, Shader.TileMode.CLAMP)
     }
 
     override fun onDraw(c: Canvas) {

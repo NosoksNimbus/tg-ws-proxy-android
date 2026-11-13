@@ -84,4 +84,58 @@
     <string name="pool_size">Пул соединений (на DC)</string>
     <string name="pool_size_hint">Больше заранее открытых сокетов — меньше медленных обходных путей, когда Telegram открывает много соединений сразу (1–16).</string>
     <string name="invalid_pool">Размер пула должен быть 1–16</string>
+
+    <!-- tabs -->
+    <string name="tab_home">Главная</string>
+    <string name="tab_network">Сеть</string>
+    <string name="tab_settings">Настройки</string>
+    <string name="tab_more">Ещё</string>
+
+    <!-- connectivity check -->
+    <string name="sec_check">Проверка связи</string>
+    <string name="check_hint">Замеряет время до Telegram по каждому пути: прямой WebSocket, прямой TCP и Cloudflare.</string>
+    <string name="check_run">Проверить связь</string>
+    <string name="check_running">Проверяю…</string>
+    <string name="check_ms">%1$d мс</string>
+    <string name="check_cf_needs_proxy">Cloudflare: сначала запустите прокси, чтобы проверить этот путь</string>
+    <string name="check_failed">Проверка не удалась: %1$s</string>
+    <string name="verdict_ws">Прямой WebSocket работает. Telegram должен грузиться быстро.</string>
+    <string name="verdict_cf">Прямой WebSocket закрыт, работает Cloudflare. Загрузка будет медленнее.</string>
+    <string name="verdict_tcp">Отвечает только прямой TCP. Загрузка может быть медленной или нестабильной.</string>
+    <string name="verdict_none">Ни один путь не отвечает. Проверьте интернет или попробуйте другую сеть.</string>
+
+    <!-- traffic -->
+    <string name="sec_traffic">Трафик</string>
+    <string name="traffic_mobile">Мобильная</string>
+    <string name="traffic_wifi">Wi-Fi</string>
+    <string name="traffic_today">Сегодня</string>
+    <string name="traffic_month">Месяц</string>
+    <string name="traffic_reset">Сбросить счётчики</string>
+    <string name="traffic_reset_done">Счётчики сброшены</string>
+
+    <!-- profiles -->
+    <string name="sec_profiles">Профили сети</string>
+    <string name="profile_enable">Отдельный профиль для Wi-Fi</string>
+    <string name="pool_wifi">Пул: Wi-Fi</string>
+    <string name="pool_mobile">Пул: мобильная сеть</string>
+    <string name="profile_hint">Профиль выбирается сам при смене сети и применяется без перезапуска.</string>
+
+    <!-- backup -->
+    <string name="sec_backup">Резервная копия</string>
+    <string name="export_settings">Экспорт настроек</string>
+    <string name="import_settings">Импорт настроек</string>
+    <string name="backup_hint">Файл содержит ваш secret. Храните его приватно.</string>
+    <string name="export_done">Настройки сохранены</string>
+    <string name="import_done">Настройки импортированы</string>
+    <string name="import_failed">Не удалось импортировать: %1$s</string>
+
+    <!-- log sharing -->
+    <string name="logs_share">Поделиться логом</string>
+    <string name="share_title">Поделиться логом</string>
+
+    <!-- alerts -->
+    <string name="notif_channel_alerts">Сбои прокси</string>
+    <string name="alert_title">TG WS Proxy: проблема</string>
+    <string name="alert_start_failed">Прокси не запустился: %1$s</string>
+    <string name="alert_crashing">Прокси падает слишком часто (%1$d раз за 10 минут)</string>
 </resources>

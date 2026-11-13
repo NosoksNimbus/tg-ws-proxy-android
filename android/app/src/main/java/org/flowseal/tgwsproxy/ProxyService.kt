@@ -19,6 +19,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.chaquo.python.Python
+import org.json.JSONObject
 import com.chaquo.python.android.AndroidPlatform
 import kotlin.concurrent.thread
 
@@ -39,8 +40,10 @@ class ProxyService : Service() {
         const val ACTION_RESTART = "org.flowseal.tgwsproxy.RESTART"
         const val CHANNEL_PROXY = "proxy"
         const val CHANNEL_UPDATES = "updates"
+        const val CHANNEL_ALERTS = "alerts"
         const val NOTIF_ID = 1
         const val NOTIF_UPDATE = 2
+        const val NOTIF_ALERT = 4
         const val EXTRA_INSTALL_UPDATE = "install_update"
 
         private const val TAG = "TgWsProxy"
@@ -48,6 +51,9 @@ class ProxyService : Service() {
         private const val UPDATE_EVERY_MS = 12 * 60 * 60 * 1000L
         private const val UPDATE_MIN_GAP_MS = 6 * 60 * 60 * 1000L
         private const val NET_RESET_GAP_MS = 3_000L
+        private const val TRAFFIC_EVERY_MS = 10_000L
+        private const val CRASH_WINDOW_MS = 10 * 60_000L
+        private const val CRASH_ALERT_COUNT = 3
 
         @Volatile var running = false
         @Volatile var lastError = ""
@@ -67,6 +73,9 @@ class ProxyService : Service() {
             nm.createNotificationChannel(NotificationChannel(
                 CHANNEL_UPDATES, ctx.getString(R.string.notif_channel_updates),
                 NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(
+                CHANNEL_ALERTS, ctx.getString(R.string.notif_channel_alerts),
+                NotificationManager.IMPORTANCE_HIGH))
         }
     }
 
@@ -80,6 +89,10 @@ class ProxyService : Service() {
     @Volatile private var lostNet: Network? = null
     @Volatile private var netLost = false
     @Volatile private var lastNetReset = 0L
+    @Volatile private var appliedPool = -1
+    private var lastDown = -1L
+    private var lastUp = -1L
+    private val crashTimes = ArrayDeque<Long>()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -103,6 +116,10 @@ class ProxyService : Service() {
 
         main.removeCallbacks(watchdog)
         main.postDelayed(watchdog, WATCHDOG_MS)
+        lastDown = -1L
+        lastUp = -1L
+        main.removeCallbacks(trafficTask)
+        main.postDelayed(trafficTask, TRAFFIC_EVERY_MS)
         main.removeCallbacks(updateTask)
         val sinceCheck = System.currentTimeMillis() - Settings.lastUpdateCheck(this)
         main.postDelayed(updateTask, if (sinceCheck > UPDATE_MIN_GAP_MS) 90_000L else UPDATE_EVERY_MS)
@@ -146,6 +163,9 @@ class ProxyService : Service() {
                 } else {
                     lastError = ""
                     running = true
+                    appliedPool = Settings.effectivePool(this)
+                    getSystemService(NotificationManager::class.java).cancel(NOTIF_ALERT)
+                    ProxyTileService.refresh(this)
                 }
             } catch (e: Throwable) {
                 fail(e.message ?: e.toString())
@@ -169,6 +189,7 @@ class ProxyService : Service() {
     }
 
     private fun fail(message: String) {
+        notifyProblem(getString(R.string.alert_start_failed, message))
         lastError = message
         running = false
         wanted = false
@@ -189,6 +210,7 @@ class ProxyService : Service() {
                     if (wanted && !alive && running) {
                         Log.w(TAG, "Core is not running, restarting")
                         running = false
+                        noteCrash()
                         startProxy()
                     }
                 }
@@ -200,10 +222,12 @@ class ProxyService : Service() {
     private fun shutdown() {
         main.removeCallbacks(watchdog)
         main.removeCallbacks(updateTask)
+        main.removeCallbacks(trafficTask)
         unregisterNetworkCallback()
         releaseWakeLock()
         thread(name = "proxy-stop") {
             synchronized(lock) {
+                pollTraffic()
                 try {
                     if (Python.isStarted()) {
                         Python.getInstance().getModule("android_entry").callAttr("stop")
@@ -212,6 +236,7 @@ class ProxyService : Service() {
                 }
                 running = false
             }
+            ProxyTileService.refresh(this)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
         }
@@ -269,11 +294,79 @@ class ProxyService : Service() {
         thread(name = "proxy-netreset") {
             try {
                 if (running) {
-                    Python.getInstance().getModule("android_entry").callAttr("network_changed", hard)
+                    val mod = Python.getInstance().getModule("android_entry")
+                    mod.callAttr("network_changed", hard)
+                    // Per-network profile: switch the pool size on the fly, no restart.
+                    val want = Settings.effectivePool(this)
+                    if (want != appliedPool) {
+                        mod.callAttr("set_tuning", want)
+                        appliedPool = want
+                    }
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "network_changed failed: $e")
             }
+        }
+    }
+
+    // ---- traffic counters ----------------------------------------------------------
+
+    private val trafficTask = object : Runnable {
+        override fun run() {
+            if (!wanted) return
+            thread(name = "traffic-poll") { pollTraffic() }
+            main.postDelayed(this, TRAFFIC_EVERY_MS)
+        }
+    }
+
+    /** Adds the bytes moved since the last sample to today's counters for the current network. */
+    private fun pollTraffic() {
+        try {
+            if (!running || !Python.isStarted()) return
+            val st = JSONObject(
+                Python.getInstance().getModule("android_entry").callAttr("get_stats").toString())
+            val d = st.optLong("down")
+            val u = st.optLong("up")
+            if (lastDown >= 0) {
+                TrafficStore.add(this, Net.current(this), maxOf(0L, d - lastDown), maxOf(0L, u - lastUp))
+            }
+            lastDown = d
+            lastUp = u
+        } catch (e: Throwable) {
+            Log.w(TAG, "Traffic poll failed: $e")
+        }
+    }
+
+    // ---- problem alerts ---------------------------------------------------------------
+
+    private fun noteCrash() {
+        val now = System.currentTimeMillis()
+        crashTimes.addLast(now)
+        while (crashTimes.isNotEmpty() && now - crashTimes.first() > CRASH_WINDOW_MS) {
+            crashTimes.removeFirst()
+        }
+        if (crashTimes.size >= CRASH_ALERT_COUNT) {
+            notifyProblem(getString(R.string.alert_crashing, crashTimes.size))
+        }
+    }
+
+    private fun notifyProblem(text: String) {
+        try {
+            ensureChannels(this)
+            val pi = PendingIntent.getActivity(
+                this, 4, Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            val n = NotificationCompat.Builder(this, CHANNEL_ALERTS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(getString(R.string.alert_title))
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            getSystemService(NotificationManager::class.java).notify(NOTIF_ALERT, n)
+        } catch (_: Exception) {
+            // Notifications may be disabled; nothing else to do.
         }
     }
 

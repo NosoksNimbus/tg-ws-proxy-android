@@ -3,14 +3,16 @@
     <style name="Theme.TgWsProxy" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/neon_cyan</item>
         <item name="colorOnPrimary">@color/on_neon</item>
-        <item name="colorPrimaryContainer">#0A3A46</item>
-        <item name="colorOnPrimaryContainer">#BFF6FF</item>
+        <item name="colorPrimaryContainer">#4A1250</item>
+        <item name="colorOnPrimaryContainer">#FFD9EA</item>
         <item name="colorSecondary">@color/neon_violet</item>
         <item name="colorSurface">@color/card</item>
         <item name="colorOnSurface">@color/text_primary</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
         <item name="colorOutline">@color/field_stroke</item>
         <item name="colorError">@color/neon_pink</item>
+        <item name="colorSecondaryContainer">@color/nav_indicator</item>
+        <item name="colorOnSecondaryContainer">@color/neon_cyan</item>
         <item name="android:colorBackground">@color/bg</item>
         <item name="android:windowBackground">@color/bg</item>
         <item name="android:statusBarColor">@color/bg</item>
@@ -43,5 +45,16 @@
     <style name="Mono" parent="TextAppearance.Material3.TitleMedium">
         <item name="android:fontFamily">monospace</item>
         <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <style name="TabTitle" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Cell" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textColor">@color/text_primary</item>
+        <item name="android:textSize">13sp</item>
     </style>
 </resources>

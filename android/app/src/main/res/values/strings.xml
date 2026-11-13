@@ -84,4 +84,58 @@
     <string name="pool_size">Connection pool (per DC)</string>
     <string name="pool_size_hint">More pre-opened sockets = fewer slow fallbacks when Telegram opens many connections at once (1–16).</string>
     <string name="invalid_pool">Pool size must be 1–16</string>
+
+    <!-- tabs -->
+    <string name="tab_home">Home</string>
+    <string name="tab_network">Network</string>
+    <string name="tab_settings">Settings</string>
+    <string name="tab_more">More</string>
+
+    <!-- connectivity check -->
+    <string name="sec_check">Connectivity check</string>
+    <string name="check_hint">Measures the time to Telegram over every route: direct WebSocket, direct TCP and Cloudflare.</string>
+    <string name="check_run">Check connection</string>
+    <string name="check_running">Checking…</string>
+    <string name="check_ms">%1$d ms</string>
+    <string name="check_cf_needs_proxy">Cloudflare: start the proxy first to test this route</string>
+    <string name="check_failed">Check failed: %1$s</string>
+    <string name="verdict_ws">Direct WebSocket works. Telegram should load fast.</string>
+    <string name="verdict_cf">Direct WebSocket is blocked, Cloudflare works. Expect slower loading.</string>
+    <string name="verdict_tcp">Only direct TCP answers. Loading may be slow or unstable.</string>
+    <string name="verdict_none">No route answers. Check your internet, or try another network.</string>
+
+    <!-- traffic -->
+    <string name="sec_traffic">Traffic</string>
+    <string name="traffic_mobile">Mobile</string>
+    <string name="traffic_wifi">Wi-Fi</string>
+    <string name="traffic_today">Today</string>
+    <string name="traffic_month">Month</string>
+    <string name="traffic_reset">Reset counters</string>
+    <string name="traffic_reset_done">Counters reset</string>
+
+    <!-- profiles -->
+    <string name="sec_profiles">Network profiles</string>
+    <string name="profile_enable">Separate profile for Wi-Fi</string>
+    <string name="pool_wifi">Pool: Wi-Fi</string>
+    <string name="pool_mobile">Pool: mobile network</string>
+    <string name="profile_hint">The profile is picked automatically when the network changes and is applied without a restart.</string>
+
+    <!-- backup -->
+    <string name="sec_backup">Backup</string>
+    <string name="export_settings">Export settings</string>
+    <string name="import_settings">Import settings</string>
+    <string name="backup_hint">The file contains your secret. Keep it private.</string>
+    <string name="export_done">Settings saved</string>
+    <string name="import_done">Settings imported</string>
+    <string name="import_failed">Import failed: %1$s</string>
+
+    <!-- log sharing -->
+    <string name="logs_share">Share log</string>
+    <string name="share_title">Share log</string>
+
+    <!-- alerts -->
+    <string name="notif_channel_alerts">Proxy problems</string>
+    <string name="alert_title">TG WS Proxy: problem</string>
+    <string name="alert_start_failed">The proxy did not start: %1$s</string>
+    <string name="alert_crashing">The proxy keeps crashing (%1$d times in 10 minutes)</string>
 </resources>

@@ -4,9 +4,9 @@
     android:viewportWidth="108" android:viewportHeight="108">
     <!-- shield, centred inside the 66dp adaptive-icon safe zone -->
     <group android:translateX="30" android:translateY="28" android:scaleX="2.0" android:scaleY="2.0">
-        <path android:fillColor="#FF00E5FF"
+        <path android:fillColor="#FFFFF1E6"
             android:pathData="M12,1L3,5v6c0,5.55 3.84,10.74 9,12 5.16,-1.26 9,-6.45 9,-12V5l-9,-4z" />
-        <path android:fillColor="#FF06080F"
+        <path android:fillColor="#FFFF2E88"
             android:pathData="M13.2,5.5L7.8,13h3.6l-0.8,5.5l5.6,-8h-3.7z" />
     </group>
 </vector>

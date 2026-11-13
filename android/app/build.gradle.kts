@@ -97,7 +97,15 @@ chaquopy {
             install("httpx==0.28.1")
             install("h2")
             install("certifi")
-            install("cryptography")
+            // 42.0.8 is the newest version with prebuilt Chaquopy Android wheels;
+            // newer releases only ship an sdist, which can't be cross-compiled here.
+            install("cryptography==42.0.8")
+            // chaquo.com is unreachable from some networks, so resolve the Android
+            // wheels from the repo-local offline wheelhouse (arm64-v8a, CPython 3.12).
+            options(
+                "--no-index",
+                "--find-links", rootProject.file("wheels").absolutePath,
+            )
         }
     }
 }
