@@ -1,0 +1,28 @@
+[package]
+name = "tgws_core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Rust core of the TG WS Proxy Android app (MTProto -> WebSocket bridge)"
+
+[lib]
+name = "tgws_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
+webpki-roots = "0.26"
+aes = "0.8"
+ctr = "0.9"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+serde_json = "1"
+jni = "0.21"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

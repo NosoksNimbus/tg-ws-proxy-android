@@ -156,8 +156,7 @@ class ProxyService : Service() {
         synchronized(lock) {
             if (!wanted) return
             try {
-                val err = python(this).getModule("android_entry")
-                    .callAttr("start", Settings.toJson(this)).toString()
+                val err = Engine.get(this).start(Settings.toJson(this))
                 if (err.isNotEmpty()) {
                     fail(err)
                 } else {
@@ -177,9 +176,7 @@ class ProxyService : Service() {
     private fun restartProxy() {
         synchronized(lock) {
             try {
-                if (Python.isStarted()) {
-                    Python.getInstance().getModule("android_entry").callAttr("stop")
-                }
+                Engine.peek()?.stop()
             } catch (_: Throwable) {
             }
             running = false
@@ -202,8 +199,7 @@ class ProxyService : Service() {
             if (wanted) {
                 thread(name = "proxy-watchdog") {
                     val alive = try {
-                        Python.isStarted() && Python.getInstance()
-                            .getModule("android_entry").callAttr("is_running").toBoolean()
+                        Engine.peek()?.isRunning() == true
                     } catch (_: Throwable) {
                         false
                     }
@@ -229,9 +225,7 @@ class ProxyService : Service() {
             synchronized(lock) {
                 pollTraffic()
                 try {
-                    if (Python.isStarted()) {
-                        Python.getInstance().getModule("android_entry").callAttr("stop")
-                    }
+                    Engine.peek()?.stop()
                 } catch (_: Throwable) {
                 }
                 running = false
@@ -294,12 +288,12 @@ class ProxyService : Service() {
         thread(name = "proxy-netreset") {
             try {
                 if (running) {
-                    val mod = Python.getInstance().getModule("android_entry")
-                    mod.callAttr("network_changed", hard)
+                    val mod = Engine.get(this)
+                    mod.networkChanged(hard)
                     // Per-network profile: switch the pool size on the fly, no restart.
                     val want = Settings.effectivePool(this)
                     if (want != appliedPool) {
-                        mod.callAttr("set_tuning", want)
+                        mod.setTuning(want)
                         appliedPool = want
                     }
                 }
@@ -322,9 +316,9 @@ class ProxyService : Service() {
     /** Adds the bytes moved since the last sample to today's counters for the current network. */
     private fun pollTraffic() {
         try {
-            if (!running || !Python.isStarted()) return
-            val st = JSONObject(
-                Python.getInstance().getModule("android_entry").callAttr("get_stats").toString())
+            val eng = Engine.peek()
+            if (!running || eng == null) return
+            val st = JSONObject(eng.stats())
             val d = st.optLong("down")
             val u = st.optLong("up")
             if (lastDown >= 0) {

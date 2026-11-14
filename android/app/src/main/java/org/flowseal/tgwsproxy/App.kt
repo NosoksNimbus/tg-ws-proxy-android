@@ -13,7 +13,7 @@ class App : Application() {
         super.onCreate()
         thread(name = "python-warmup", priority = Thread.MIN_PRIORITY) {
             try {
-                ProxyService.python(this).getModule("android_entry")
+                (Engine.get(this) as? PythonEngine)?.warmup()
             } catch (_: Throwable) {
                 // The service reports real errors when it actually starts the core.
             }

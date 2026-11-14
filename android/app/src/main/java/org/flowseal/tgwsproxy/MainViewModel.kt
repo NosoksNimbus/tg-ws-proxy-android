@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.chaquo.python.Python
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -316,8 +315,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             var out: JSONObject? = null
             var error: String? = null
             try {
-                val mod = ProxyService.python(ctx).getModule("android_entry")
-                out = JSONObject(mod.callAttr("diagnose", cfg).toString())
+                out = JSONObject(Engine.get(ctx).diagnose(cfg))
             } catch (e: Throwable) {
                 error = e.message ?: e.toString()
             }
@@ -390,13 +388,12 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             while (isActive) {
                 var stats: JSONObject? = null
                 var log: String? = null
-                if (Python.isStarted()) {
+                val eng = Engine.peek()
+                if (eng != null) {
                     try {
-                        val mod = Python.getInstance().getModule("android_entry")
-                        if (ProxyService.running) stats = JSONObject(mod.callAttr("get_stats").toString())
+                        if (ProxyService.running) stats = JSONObject(eng.stats())
                         if (logVisible) {
-                            log = mod.callAttr("get_logs").toString()
-                                .lines().takeLast(80).joinToString("\n")
+                            log = eng.logs().lines().takeLast(80).joinToString("\n")
                         }
                     } catch (_: Throwable) {
                     }

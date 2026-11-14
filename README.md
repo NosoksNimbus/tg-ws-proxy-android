@@ -183,3 +183,7 @@ MIT — как у оригинального проекта. Ядро `proxy/` �
 
 ## UI: Jetpack Compose «liquid glass»
 The interface is now written in Jetpack Compose: animated aurora background, frosted glass cards with rim light, glass power orb, floating glass tab bar. Logic lives in `MainViewModel`; views in `ui/Glass.kt` and `ui/Screens.kt`.
+
+
+## Rust core (experimental, opt-in)
+See `rust-core/README.md`. Build with `./gradlew assembleDebug -PrustCore=true`; the Python core stays bundled and is used by default and as a fallback if the Rust library does not load.

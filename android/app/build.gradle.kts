@@ -4,6 +4,12 @@ plugins {
     id("com.chaquo.python")
 }
 
+// Optional Rust core: ./gradlew assembleDebug -PrustCore=true (needs cargo, cargo-ndk, the Android NDK
+// and rustup targets aarch64-linux-android / x86_64-linux-android). Python stays bundled as a fallback.
+val rustCore: Boolean = (findProperty("rustCore") as String?)?.toBoolean() ?: false
+
+val abis: List<String> = ((findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",")
+
 // The proxy core lives in ../../proxy and is shared with the desktop builds.
 // Copy it into the default Python source root so Chaquopy packages it as the
 // `proxy` package. (Chaquopy's source-set extension is not visible from the
@@ -15,6 +21,18 @@ val syncProxyCore by tasks.registering(Sync::class) {
     into(file("src/main/python/proxy"))
 }
 tasks.named("preBuild") { dependsOn(syncProxyCore) }
+
+val rustTargets = mapOf("arm64-v8a" to "arm64-v8a", "x86_64" to "x86_64")
+val buildRustCore by tasks.registering(Exec::class) {
+    onlyIf { rustCore }
+    workingDir = rootProject.file("../rust-core")
+    val out = file("src/main/jniLibs")
+    val args = mutableListOf("cargo", "ndk")
+    abis.filter { it in rustTargets }.forEach { args += listOf("-t", it) }
+    args += listOf("-o", out.absolutePath, "build", "--release")
+    commandLine(args)
+}
+if (rustCore) tasks.named("preBuild") { dependsOn(buildRustCore) }
 // The Python source merge reads src/main/python, so it must run after the sync.
 tasks.matching { it.name.contains("PythonSources") }.configureEach { dependsOn(syncProxyCore) }
 
@@ -33,8 +51,6 @@ val appVersionCode: Int = appVersion.split(".").map { it.toIntOrNull() ?: 0 }.le
         (it.getOrElse(2) { 0 }) * 100 +
         (it.getOrElse(3) { 0 })
 }
-val abis: List<String> = ((findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",")
-
 // Where the in-app updater looks for releases.
 val updateRepo: String = (findProperty("updateRepo") as String?) ?: "NosoksNimbus/tg-ws-proxy-android"
 
@@ -50,6 +66,7 @@ android {
         versionCode = appVersionCode
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "CORE_VERSION", "\"$coreVersion\"")
+        buildConfigField("boolean", "RUST_CORE", rustCore.toString())
 
         ndk {
             // Python 3.12 in Chaquopy is 64-bit only, so no armeabi-v7a.
