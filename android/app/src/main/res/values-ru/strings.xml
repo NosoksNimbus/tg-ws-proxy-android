@@ -138,4 +138,6 @@
     <string name="alert_title">TG WS Proxy: проблема</string>
     <string name="alert_start_failed">Прокси не запустился: %1$s</string>
     <string name="alert_crashing">Прокси падает слишком часто (%1$d раз за 10 минут)</string>
+    <string name="verdict_filtered">Обычные сайты открываются, а Telegram и Cloudflare — нет. Похоже, сеть фильтрует эти адреса. Попробуйте другую сеть или Wi-Fi.</string>
+    <string name="save">Сохранить</string>
 </resources>

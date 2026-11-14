@@ -138,4 +138,6 @@
     <string name="alert_title">TG WS Proxy: problem</string>
     <string name="alert_start_failed">The proxy did not start: %1$s</string>
     <string name="alert_crashing">The proxy keeps crashing (%1$d times in 10 minutes)</string>
+    <string name="verdict_filtered">Ordinary sites are reachable but Telegram and Cloudflare are not. This network seems to filter those addresses. Try another network or Wi-Fi.</string>
+    <string name="save">Save</string>
 </resources>

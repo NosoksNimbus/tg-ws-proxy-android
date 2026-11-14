@@ -179,3 +179,7 @@ logcat нет.
 
 MIT — как у оригинального проекта. Ядро `proxy/` взято из
 [tg-ws-proxy](https://github.com/Flowseal/tg-ws-proxy) без изменений.
+
+
+## UI: Jetpack Compose «liquid glass»
+The interface is now written in Jetpack Compose: animated aurora background, frosted glass cards with rim light, glass power orb, floating glass tab bar. Logic lives in `MainViewModel`; views in `ui/Glass.kt` and `ui/Screens.kt`.

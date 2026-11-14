@@ -388,6 +388,8 @@ def _short_error(exc: BaseException) -> str:
         return "timeout"
     if isinstance(exc, OSError) and getattr(exc, "errno", None):
         return exc.strerror or type(exc).__name__
+    if type(exc) is RuntimeError and str(exc):
+        return str(exc)[:80]
     name = type(exc).__name__
     text = str(exc)
     return (name + ": " + text)[:60] if text else name
@@ -403,6 +405,35 @@ async def _probe(name: str, coro_factory, timeout: float = 6.0) -> dict:
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             raise
         return {"name": name, "ok": False, "error": _short_error(exc)}
+
+
+async def _staged_ws(host: str, domain: str, path: str) -> None:
+    """WebSocket handshake with a precise failure stage: dns / tcp 443+80 / handshake."""
+    loop = asyncio.get_running_loop()
+    try:
+        infos = await asyncio.wait_for(
+            loop.getaddrinfo(host, 443, family=socket.AF_INET, type=socket.SOCK_STREAM), 3.0)
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("dns: " + _short_error(exc))
+    ip = infos[0][4][0]
+
+    async def reach(port: int) -> bool:
+        try:
+            _, w = await asyncio.wait_for(asyncio.open_connection(ip, port), 3.5)
+            w.close()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
+
+    ok443, ok80 = await asyncio.gather(reach(443), reach(80))
+    if not ok443 and not ok80:
+        raise RuntimeError("IP %s blocked (tcp 443+80)" % ip)
+    try:
+        ws = await RawWebSocket.connect(host, domain, timeout=5.0, path=path)
+        await ws.close()
+    except Exception as exc:  # noqa: BLE001
+        raise RuntimeError("%s tcp ok (443:%s 80:%s), handshake: %s" % (
+            ip, "y" if ok443 else "n", "y" if ok80 else "n", _short_error(exc)))
 
 
 async def _diagnose(cfg: dict) -> list:
@@ -433,9 +464,23 @@ async def _diagnose(cfg: dict) -> list:
             for base in domains[:2]:
                 async def cf_probe(base=base, dc=dc):
                     host = "kws%d.%s" % (dc, base)
-                    ws = await RawWebSocket.connect(host, host, timeout=6.0)
-                    await ws.close()
-                probes.append(_probe("CF " + base[:18], cf_probe))
+                    await _staged_ws(host, host, "/apiws")
+                probes.append(_probe("CF " + base[:18], cf_probe, timeout=14.0))
+
+    # Own Cloudflare Worker(s): same transport the proxy uses for the worker fallback.
+    for wd in coerce_domain_list(cfg.get("cfproxy_worker_domain") or [])[:2]:
+        async def worker_probe(wd=wd):
+            await _staged_ws(wd, wd, "/apiws?dst=149.154.167.220&dc=2")
+        probes.append(_probe("Worker " + wd[:16], worker_probe, timeout=14.0))
+
+    # Control probes: show whether the phone's connection works for this app at all
+    # (ordinary site by name, plus two well-known IPs) or only Telegram/Cloudflare is cut.
+    for label, host in (("NET ya.ru", "ya.ru"), ("NET 1.1.1.1", "1.1.1.1"),
+                        ("NET 8.8.8.8", "8.8.8.8")):
+        async def net_probe(host=host):
+            _, writer = await asyncio.open_connection(host, 443)
+            writer.close()
+        probes.append(_probe(label, net_probe))
 
     return list(await asyncio.gather(*probes))
 
