@@ -9,6 +9,14 @@ enum class Net {
     WIFI, MOBILE, OTHER;
 
     companion object {
+        /** True while the default network is a VPN (e.g. Happ in VPN mode). */
+        fun isVpn(ctx: Context): Boolean = try {
+            val cm = ctx.getSystemService(ConnectivityManager::class.java)
+            cm.getNetworkCapabilities(cm.activeNetwork)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true
+        } catch (_: Exception) {
+            false
+        }
+
         fun current(ctx: Context): Net {
             return try {
                 val cm = ctx.getSystemService(ConnectivityManager::class.java)

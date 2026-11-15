@@ -187,3 +187,9 @@ The interface is now written in Jetpack Compose: animated aurora background, fro
 
 ## Rust core (experimental, opt-in)
 See `rust-core/README.md`. Build with `./gradlew assembleDebug -PrustCore=true`; the Python core stays bundled and is used by default and as a fallback if the Rust library does not load.
+
+
+## Themes, VPN, check history
+- Themes (Settings): Liquid glass, GTA VI, AMOLED black, Light.
+- VPN detection: the Home screen shows a note while a VPN (e.g. Happ) is the default network; the proxy resets its connections when VPN turns on/off and then goes through the VPN.
+- Network tab keeps the last 30 connectivity checks with a graph of reachable routes.

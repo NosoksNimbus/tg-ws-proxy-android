@@ -40,6 +40,8 @@ object Settings {
         val t = saved.trim()
         return if (t == LEGACY_DC_IP || t == "4:149.154.167.220") DEFAULT_DC_IP else saved
     }
+    fun theme(ctx: Context): String = prefs(ctx).getString("theme", "glass") ?: "glass"
+    fun setTheme(ctx: Context, key: String) = prefs(ctx).edit().putString("theme", key).apply()
     fun cfproxy(ctx: Context): Boolean = prefs(ctx).getBoolean("cfproxy", true)
     /**
      * Pre-opened upstream sockets per DC. Bursts above this fall back to slower routes.

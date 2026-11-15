@@ -79,6 +79,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     // ---- connectivity check -----------------------------------------------------------
     var checkRunning by mutableStateOf(false); private set
     var checkLines by mutableStateOf<List<CheckLine>>(emptyList()); private set
+    var checkHistory by mutableStateOf<List<CheckRun>>(emptyList()); private set
+    var vpnActive by mutableStateOf(false); private set
     var checkVerdict by mutableStateOf<String?>(null); private set
 
     // ---- updates -------------------------------------------------------------------------
@@ -99,6 +101,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         loadForm()
         renderUpdate()
         refreshTotals()
+        checkHistory = CheckStore.list(ctx)
     }
 
     private fun str(id: Int, vararg a: Any): String = ctx.getString(id, *a)
@@ -322,9 +325,18 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             withContext(Dispatchers.Main) {
                 checkRunning = false
                 if (out == null) checkVerdict = str(R.string.check_failed, error ?: "?")
-                else showCheck(out)
+                else {
+                    showCheck(out)
+                    CheckStore.add(ctx, out, Net.current(ctx), Net.isVpn(ctx))
+                    checkHistory = CheckStore.list(ctx)
+                }
             }
         }
+    }
+
+    fun clearCheckHistory() {
+        CheckStore.clear(ctx)
+        checkHistory = emptyList()
     }
 
     private fun showCheck(o: JSONObject) {
@@ -398,7 +410,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     } catch (_: Throwable) {
                     }
                 }
+                val vpn = Net.isVpn(ctx)
                 withContext(Dispatchers.Main) {
+                    vpnActive = vpn
                     refreshState()
                     applyStats(stats)
                     log?.let { logText = it }

@@ -140,4 +140,15 @@
     <string name="alert_crashing">Прокси падает слишком часто (%1$d раз за 10 минут)</string>
     <string name="verdict_filtered">Обычные сайты открываются, а Telegram и Cloudflare — нет. Похоже, сеть фильтрует эти адреса. Попробуйте другую сеть или Wi-Fi.</string>
     <string name="save">Сохранить</string>
+    <string name="theme_title">Тема</string>
+    <string name="theme_glass">Жидкое стекло</string>
+    <string name="theme_gta">GTA VI</string>
+    <string name="theme_amoled">AMOLED чёрная</string>
+    <string name="theme_light">Светлая</string>
+    <string name="vpn_active">VPN активен — трафик идёт через него</string>
+    <string name="check_history">История проверок</string>
+    <string name="check_history_empty">Проверок пока нет. Запустите выше.</string>
+    <string name="check_history_graph">Доступных путей за проверку (выше — лучше)</string>
+    <string name="check_history_clear">Очистить историю</string>
+    <string name="net_other">Другая</string>
 </resources>

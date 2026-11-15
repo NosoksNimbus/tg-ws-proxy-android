@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
@@ -24,6 +25,7 @@ import org.flowseal.tgwsproxy.BuildConfig
 import org.flowseal.tgwsproxy.MainViewModel
 import org.flowseal.tgwsproxy.R
 import org.flowseal.tgwsproxy.RunState
+import org.flowseal.tgwsproxy.Settings
 
 @Composable
 private fun TabColumn(content: @Composable () -> Unit) {
@@ -53,6 +55,12 @@ fun HomeScreen(vm: MainViewModel) {
                 }),
                 color = G.text, fontSize = 26.sp, fontWeight = FontWeight.Bold)
             Hint(vm.statusHint, Modifier.padding(top = 4.dp))
+            if (vm.vpnActive) {
+                GapH(8.dp)
+                Text(
+                    stringResource(R.string.vpn_active), color = G.mint, fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold)
+            }
             GapH(6.dp)
             Text(
                 stringResource(R.string.chip_core, BuildConfig.CORE_VERSION),
@@ -120,6 +128,22 @@ fun NetworkScreen(vm: MainViewModel) {
 
         GapH(16.dp)
         GlassCard(Modifier.fillMaxWidth()) {
+            SectionTitle(stringResource(R.string.check_history))
+            if (vm.checkHistory.isEmpty()) {
+                Hint(stringResource(R.string.check_history_empty))
+            } else {
+                Hint(stringResource(R.string.check_history_graph))
+                Spark(vm.checkHistory.map { it.reachable.toFloat() + 0.2f },
+                    Modifier.fillMaxWidth().height(56.dp).padding(top = 8.dp))
+                vm.checkHistory.takeLast(8).reversed().forEach { r -> HistoryRow(r) }
+                GapH(10.dp)
+                GlassButton(stringResource(R.string.check_history_clear), { vm.clearCheckHistory() },
+                    Modifier.fillMaxWidth())
+            }
+        }
+
+        GapH(16.dp)
+        GlassCard(Modifier.fillMaxWidth()) {
             SectionTitle(stringResource(R.string.sec_traffic))
             val t = vm.totals
             TrafficRow(stringResource(R.string.traffic_today), stringResource(R.string.traffic_mobile), t.todayMobile)
@@ -166,6 +190,25 @@ fun SettingsScreen(vm: MainViewModel) {
     val f = vm.form
     TabColumn {
         ScreenTitle(stringResource(R.string.tab_settings))
+
+        val ctx = androidx.compose.ui.platform.LocalContext.current
+        GlassCard(Modifier.fillMaxWidth()) {
+            SectionTitle(stringResource(R.string.theme_title))
+            val themes = listOf(
+                AppTheme.GLASS to R.string.theme_glass, AppTheme.GTA to R.string.theme_gta,
+                AppTheme.AMOLED to R.string.theme_amoled, AppTheme.LIGHT to R.string.theme_light)
+            themes.chunked(2).forEachIndexed { i, rowItems ->
+                if (i > 0) GapH(10.dp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    rowItems.forEach { (t, label) ->
+                        GlassButton(stringResource(label),
+                            { Themes.current = t; Settings.setTheme(ctx, t.key) },
+                            Modifier.weight(1f), primary = Themes.current == t)
+                    }
+                }
+            }
+        }
+        GapH(16.dp)
 
         GlassCard(Modifier.fillMaxWidth()) {
             SectionTitle(stringResource(R.string.sec_connection))
@@ -257,5 +300,36 @@ fun MoreScreen(vm: MainViewModel, onExport: () -> Unit, onImport: () -> Unit) {
                 color = G.textDim, fontSize = 11.sp, lineHeight = 15.sp,
                 fontFamily = FontFamily.Monospace)
         }
+    }
+}
+
+@Composable
+private fun HistoryRow(r: org.flowseal.tgwsproxy.CheckRun) {
+    val fmt = remember { java.text.SimpleDateFormat("dd.MM HH:mm", java.util.Locale.getDefault()) }
+    val net = stringResource(when (r.net) {
+        "WIFI" -> R.string.traffic_wifi
+        "MOBILE" -> R.string.traffic_mobile
+        else -> R.string.net_other
+    })
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp)) {
+        Row(Modifier.fillMaxWidth()) {
+            Text(fmt.format(java.util.Date(r.time)), color = G.textDim, fontSize = 12.sp,
+                modifier = Modifier.weight(1f))
+            Text(net + if (r.vpn) " + VPN" else "", color = G.textDim, fontSize = 12.sp)
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Route("WS", r.ws)
+            Route("CF", r.cf)
+            Route("TCP", r.tcp)
+        }
+    }
+}
+
+@Composable
+private fun Route(name: String, ms: Int?) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Dot(if (ms != null) G.mint else G.danger)
+        GapW(6.dp)
+        Text(if (ms != null) "$name ${ms}ms" else name, color = G.text, fontSize = 13.sp)
     }
 }

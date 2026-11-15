@@ -34,7 +34,10 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import org.flowseal.tgwsproxy.ui.AppTheme
 import org.flowseal.tgwsproxy.ui.G
+import org.flowseal.tgwsproxy.ui.NavFade
+import org.flowseal.tgwsproxy.ui.Themes
 import org.flowseal.tgwsproxy.ui.GlassBackground
 import org.flowseal.tgwsproxy.ui.GlassNav
 import org.flowseal.tgwsproxy.ui.HomeScreen
@@ -67,6 +70,7 @@ class MainActivity : ComponentActivity() {
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         }
+        Themes.current = AppTheme.of(Settings.theme(this))
         vm.autoCheckOnOpen()
 
         setContent {
@@ -81,6 +85,12 @@ class MainActivity : ComponentActivity() {
     private fun App() {
         var tab by rememberSaveable { mutableIntStateOf(0) }
         LaunchedEffect(tab) { vm.logVisible = tab == 3 }
+        val light = !Themes.palette.dark
+        LaunchedEffect(light) {
+            val bar = if (light) SystemBarStyle.light(Color.Transparent.toArgb(), Color.Transparent.toArgb())
+            else SystemBarStyle.dark(Color.Transparent.toArgb())
+            enableEdgeToEdge(statusBarStyle = bar, navigationBarStyle = bar)
+        }
 
         val export = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -111,6 +121,7 @@ class MainActivity : ComponentActivity() {
                         onImport = { import.launch(arrayOf("*/*")) })
                 }
             }
+            NavFade(Modifier.align(Alignment.BottomCenter))
             GlassNav(
                 items, tab, { tab = it },
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding()

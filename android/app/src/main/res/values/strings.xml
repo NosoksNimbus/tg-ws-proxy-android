@@ -140,4 +140,15 @@
     <string name="alert_crashing">The proxy keeps crashing (%1$d times in 10 minutes)</string>
     <string name="verdict_filtered">Ordinary sites are reachable but Telegram and Cloudflare are not. This network seems to filter those addresses. Try another network or Wi-Fi.</string>
     <string name="save">Save</string>
+    <string name="theme_title">Theme</string>
+    <string name="theme_glass">Liquid glass</string>
+    <string name="theme_gta">GTA VI</string>
+    <string name="theme_amoled">AMOLED black</string>
+    <string name="theme_light">Light</string>
+    <string name="vpn_active">VPN active — traffic goes through it</string>
+    <string name="check_history">Check history</string>
+    <string name="check_history_empty">No checks yet. Run one above.</string>
+    <string name="check_history_graph">Reachable routes per check (higher is better)</string>
+    <string name="check_history_clear">Clear history</string>
+    <string name="net_other">Other</string>
 </resources>
