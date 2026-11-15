@@ -151,4 +151,21 @@
     <string name="check_history_graph">Доступных путей за проверку (выше — лучше)</string>
     <string name="check_history_clear">Очистить историю</string>
     <string name="net_other">Другая</string>
+    <string name="sec_warp">WARP в мобильной сети</string>
+    <string name="warp_auto">Включать WARP автоматически в мобильной сети</string>
+    <string name="warp_auto_hint">Через туннель идут только Telegram и это приложение. На Wi-Fi выключается. Работает, пока запущен прокси.</string>
+    <string name="warp_pick">Выбрать файл конфига (.conf)</string>
+    <string name="warp_remove">Удалить конфиг</string>
+    <string name="warp_st_off">WARP выключен.</string>
+    <string name="warp_st_noconfig">Конфига пока нет: скачайте файл AmneziaWG (.conf) и выберите его кнопкой.</string>
+    <string name="warp_st_permission">Android просит разрешение на создание VPN. Переключите тумблер ещё раз и разрешите.</string>
+    <string name="warp_st_waiting">Жду мобильную сеть (на Wi-Fi WARP выключен).</string>
+    <string name="warp_st_connecting">Подключаю WARP…</string>
+    <string name="warp_st_up">WARP включён.</string>
+    <string name="warp_st_error">Ошибка WARP: %1$s</string>
+    <string name="warp_bad_config">Конфиг не принят: %1$s</string>
+    <string name="warp_note">Конфиг принят. Пропущены неподдерживаемые параметры: %1$s</string>
+    <string name="warp_st_paused">Включён другой VPN, поэтому WARP на паузе. Вернётся после его выключения.</string>
+    <string name="warp_notif_title">WARP на паузе</string>
+    <string name="warp_notif_text">Нажмите, чтобы снова разрешить VPN и вернуть WARP.</string>
 </resources>

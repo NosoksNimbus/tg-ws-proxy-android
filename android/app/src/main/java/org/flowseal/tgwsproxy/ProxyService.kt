@@ -104,6 +104,7 @@ class ProxyService : Service() {
         enterForeground()
         acquireWakeLock()
         registerNetworkCallback()
+        WarpManager.start(this)
         thread(name = "proxy-start") { startProxy() }
 
         main.removeCallbacks(watchdog)
@@ -212,6 +213,7 @@ class ProxyService : Service() {
         main.removeCallbacks(updateTask)
         main.removeCallbacks(trafficTask)
         unregisterNetworkCallback()
+        WarpManager.stop(this)
         releaseWakeLock()
         thread(name = "proxy-stop") {
             synchronized(lock) {

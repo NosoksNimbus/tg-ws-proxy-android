@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // ABIs to build the Rust core for (rustup targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android).
@@ -37,7 +38,9 @@ val updateRepo: String = (findProperty("updateRepo") as String?) ?: "NosoksNimbu
 
 android {
     namespace = "org.flowseal.tgwsproxy"
-    compileSdk = 34
+    // 36: amneziawg-android 2.3.7 (via hevtunnel) ships androidx.core 1.17.0,
+    // whose AAR metadata requires compiling against API 36.
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "org.flowseal.tgwsproxy"
@@ -75,6 +78,11 @@ android {
         }
     }
 
+    // OkHttp 5.x and jspecify both ship META-INF/versions/9/OSGI-INF/MANIFEST.MF.
+    packaging {
+        resources.excludes += "META-INF/versions/*/OSGI-INF/**"
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -103,4 +111,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.2")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.6")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.6")
+
+    // Embedded AmneziaWG tunnel for the automatic WARP-on-mobile-data feature.
+    implementation("com.zaneschepke:amneziawg-android:2.3.7")
 }

@@ -151,4 +151,21 @@
     <string name="check_history_graph">Reachable routes per check (higher is better)</string>
     <string name="check_history_clear">Clear history</string>
     <string name="net_other">Other</string>
+    <string name="sec_warp">WARP on mobile data</string>
+    <string name="warp_auto">Turn WARP on automatically on mobile data</string>
+    <string name="warp_auto_hint">Only Telegram and this app go through the tunnel. Off on Wi-Fi. Works while the proxy is running.</string>
+    <string name="warp_pick">Choose config file (.conf)</string>
+    <string name="warp_remove">Remove config</string>
+    <string name="warp_st_off">WARP is off.</string>
+    <string name="warp_st_noconfig">No config yet: download the AmneziaWG .conf file and tap the button to choose it.</string>
+    <string name="warp_st_permission">Android needs your permission to create the VPN. Toggle the switch again to allow it.</string>
+    <string name="warp_st_waiting">Waiting for mobile data (WARP stays off on Wi-Fi).</string>
+    <string name="warp_st_connecting">Connecting WARP…</string>
+    <string name="warp_st_up">WARP is on.</string>
+    <string name="warp_st_error">WARP error: %1$s</string>
+    <string name="warp_bad_config">Config not accepted: %1$s</string>
+    <string name="warp_note">Config accepted. Skipped unsupported options: %1$s</string>
+    <string name="warp_st_paused">Another VPN is on, so WARP is paused. It comes back after that VPN is turned off.</string>
+    <string name="warp_notif_title">WARP is paused</string>
+    <string name="warp_notif_text">Tap to allow the VPN again and bring WARP back.</string>
 </resources>

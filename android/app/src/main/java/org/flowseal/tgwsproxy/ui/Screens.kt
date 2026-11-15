@@ -233,6 +233,9 @@ fun SettingsScreen(vm: MainViewModel) {
         }
 
         GapH(16.dp)
+        WarpCard()
+
+        GapH(16.dp)
         GlassCard(Modifier.fillMaxWidth()) {
             SectionTitle(stringResource(R.string.sec_system))
             GlassSwitchRow(stringResource(R.string.keep_awake), f.keepAwake, { f.keepAwake = it },
