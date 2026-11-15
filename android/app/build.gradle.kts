@@ -1,40 +1,21 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
-    id("com.chaquo.python")
 }
 
-// Optional Rust core: ./gradlew assembleDebug -PrustCore=true (needs cargo, cargo-ndk, the Android NDK
-// and rustup targets aarch64-linux-android / x86_64-linux-android). Python stays bundled as a fallback.
-val rustCore: Boolean = (findProperty("rustCore") as String?)?.toBoolean() ?: false
-
+// ABIs to build the Rust core for (rustup targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android).
 val abis: List<String> = ((findProperty("abis") as String?) ?: "arm64-v8a,x86_64").split(",")
 
-// The proxy core lives in ../../proxy and is shared with the desktop builds.
-// Copy it into the default Python source root so Chaquopy packages it as the
-// `proxy` package. (Chaquopy's source-set extension is not visible from the
-// Kotlin DSL, so adding a separate srcDir is not an option here.)
-val syncProxyCore by tasks.registering(Sync::class) {
-    from(rootProject.file("../proxy")) {
-        exclude("__pycache__", "**/*.pyc")
-    }
-    into(file("src/main/python/proxy"))
-}
-tasks.named("preBuild") { dependsOn(syncProxyCore) }
-
-val rustTargets = mapOf("arm64-v8a" to "arm64-v8a", "x86_64" to "x86_64")
+// The proxy core is the Rust crate in ../../rust-core, built with cargo-ndk into src/main/jniLibs.
 val buildRustCore by tasks.registering(Exec::class) {
-    onlyIf { rustCore }
     workingDir = rootProject.file("../rust-core")
     val out = file("src/main/jniLibs")
     val args = mutableListOf("cargo", "ndk")
-    abis.filter { it in rustTargets }.forEach { args += listOf("-t", it) }
+    abis.forEach { args += listOf("-t", it) }
     args += listOf("-o", out.absolutePath, "build", "--release")
     commandLine(args)
 }
-if (rustCore) tasks.named("preBuild") { dependsOn(buildRustCore) }
-// The Python source merge reads src/main/python, so it must run after the sync.
-tasks.matching { it.name.contains("PythonSources") }.configureEach { dependsOn(syncProxyCore) }
+tasks.named("preBuild") { dependsOn(buildRustCore) }
 
 // Core version comes from proxy/__init__.py so the app follows the desktop release.
 val coreVersion: String = Regex("""__version__\s*=\s*"([^"]+)"""")
@@ -66,13 +47,8 @@ android {
         versionCode = appVersionCode
         buildConfigField("String", "UPDATE_REPO", "\"$updateRepo\"")
         buildConfigField("String", "CORE_VERSION", "\"$coreVersion\"")
-        buildConfigField("boolean", "RUST_CORE", rustCore.toString())
 
-        ndk {
-            // Python 3.12 in Chaquopy is 64-bit only, so no armeabi-v7a.
-            // Release CI passes -Pabis=arm64-v8a to keep the APK (and updates) small.
-            abiFilters += abis
-        }
+        ndk { abiFilters += abis }
     }
 
     buildFeatures {
@@ -112,26 +88,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
-}
-
-chaquopy {
-    defaultConfig {
-        version = "3.12"
-        pip {
-            install("httpx==0.28.1")
-            install("h2")
-            install("certifi")
-            // 42.0.8 is the newest version with prebuilt Chaquopy Android wheels;
-            // newer releases only ship an sdist, which can't be cross-compiled here.
-            install("cryptography==42.0.8")
-            // chaquo.com is unreachable from some networks, so resolve the Android
-            // wheels from the repo-local offline wheelhouse (arm64-v8a, CPython 3.12).
-            options(
-                "--no-index",
-                "--find-links", rootProject.file("wheels").absolutePath,
-            )
-        }
-    }
 }
 
 dependencies {

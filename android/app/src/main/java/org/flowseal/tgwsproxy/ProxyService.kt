@@ -18,13 +18,11 @@ import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
-import com.chaquo.python.Python
 import org.json.JSONObject
-import com.chaquo.python.android.AndroidPlatform
 import kotlin.concurrent.thread
 
 /**
- * Foreground service that hosts the Python proxy.
+ * Foreground service that hosts the proxy core.
  *
  * Besides starting/stopping the core it keeps it healthy on a phone:
  *  - resets pooled/active connections when the default network changes,
@@ -57,12 +55,6 @@ class ProxyService : Service() {
 
         @Volatile var running = false
         @Volatile var lastError = ""
-
-        @Synchronized
-        fun python(ctx: Context): Python {
-            if (!Python.isStarted()) Python.start(AndroidPlatform(ctx.applicationContext))
-            return Python.getInstance()
-        }
 
         fun ensureChannels(ctx: Context) {
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return

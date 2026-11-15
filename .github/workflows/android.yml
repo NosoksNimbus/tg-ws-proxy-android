@@ -31,19 +31,35 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Chaquopy needs a Python on the build machine to run pip
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       # The ubuntu-latest image already ships a complete Android SDK, so we only
-      # verify it instead of installing packages with sdkmanager. (The old
-      # android-actions/setup-android@v3 step failed on `sdkmanager tools`.)
+      # verify it instead of installing packages with the setup-android action
+      # (that action failed on `sdkmanager tools`).
       - name: Check Android SDK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           ls "$ANDROID_HOME/platforms" "$ANDROID_HOME/build-tools"
+
+      # The proxy core is a Rust crate built with cargo-ndk.
+      - name: Install NDK and Rust Android targets
+        run: |
+          set -e
+          SDKMANAGER="$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+          if [ -z "$SDKMANAGER" ]; then SDKMANAGER="$(command -v sdkmanager || true)"; fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found; cannot install the NDK"
+            exit 1
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null 2>&1 || true
+          "$SDKMANAGER" "ndk;26.1.10909125"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
+          rustup target add aarch64-linux-android
+          # Prebuilt cargo-ndk: compiling it from source would add minutes.
+          curl -sSL -o cargo-ndk.tgz \
+            https://github.com/bbqsrc/cargo-ndk/releases/download/v4.1.2/cargo-ndk-x86_64-unknown-linux-gnu-v4.1.2.tgz
+          tar -xzf cargo-ndk.tgz
+          find . -name 'cargo-ndk*' -type f -exec install -m 755 {} "$HOME/.cargo/bin/" \;
+          cargo ndk --version
 
       - uses: gradle/actions/setup-gradle@v4
 

@@ -185,9 +185,11 @@ MIT — как у оригинального проекта. Ядро `proxy/` �
 The interface is now written in Jetpack Compose: animated aurora background, frosted glass cards with rim light, glass power orb, floating glass tab bar. Logic lives in `MainViewModel`; views in `ui/Glass.kt` and `ui/Screens.kt`.
 
 
-## Rust core (experimental, opt-in)
-See `rust-core/README.md`. Build with `./gradlew assembleDebug -PrustCore=true`; the Python core stays bundled and is used by default and as a fallback if the Rust library does not load.
-
+## Rust core
+The proxy core is now written in Rust (`rust-core/`, MIT) and is built into the APK by Gradle through
+cargo-ndk. Requirements: Android NDK, `cargo install cargo-ndk`, and
+`rustup target add aarch64-linux-android x86_64-linux-android` (add `armv7-linux-androideabi` for 32-bit).
+The Python core in `proxy/` stays for the desktop builds only; Chaquopy is no longer used by the app.
 
 ## Themes, VPN, check history
 - Themes (Settings): Liquid glass, GTA VI, AMOLED black, Light.

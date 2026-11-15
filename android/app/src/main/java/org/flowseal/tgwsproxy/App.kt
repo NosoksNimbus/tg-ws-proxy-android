@@ -3,19 +3,15 @@ package org.flowseal.tgwsproxy
 import android.app.Application
 import kotlin.concurrent.thread
 
-/**
- * Starts the embedded Python runtime in the background as soon as the process is created,
- * so pressing the power button doesn't have to wait for the interpreter and the
- * proxy modules to load.
- */
+/** Loads the native proxy core in the background so the first start is instant. */
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
-        thread(name = "python-warmup", priority = Thread.MIN_PRIORITY) {
+        thread(name = "core-warmup", priority = Thread.MIN_PRIORITY) {
             try {
-                (Engine.get(this) as? PythonEngine)?.warmup()
+                Engine.get(this)
             } catch (_: Throwable) {
-                // The service reports real errors when it actually starts the core.
+                // The service reports the real error when it starts the core.
             }
         }
     }
