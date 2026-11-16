@@ -91,7 +91,7 @@ jobs:
           else
             echo "have=false" >> "$GITHUB_OUTPUT"
             if [ "${{ steps.ver.outputs.release }}" = "true" ]; then
-              echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not set. A release signed with a random key can't be installed over the previous version. See docs/RU/README.android.md."
+              echo "::error::Secret ANDROID_KEYSTORE_BASE64 is not set. A release signed with a random key can't be installed over the previous version."
               exit 1
             fi
             echo "::warning::No signing key: building with a throwaway debug key (not updatable)."

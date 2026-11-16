@@ -81,11 +81,19 @@ android {
     // OkHttp 5.x and jspecify both ship META-INF/versions/9/OSGI-INF/MANIFEST.MF.
     packaging {
         resources.excludes += "META-INF/versions/*/OSGI-INF/**"
+        // Native libraries are ~11 MB uncompressed and deflate to roughly a third:
+        // storing them compressed makes the download (and every in-app update) smaller.
+        jniLibs.useLegacyPackaging = true
     }
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             signingConfig = signingConfigs.findByName("release")
                 ?: signingConfigs.getByName("debug")
         }
