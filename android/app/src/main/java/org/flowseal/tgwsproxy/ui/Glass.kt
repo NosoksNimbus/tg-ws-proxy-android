@@ -15,6 +15,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -375,36 +383,52 @@ fun Spark(values: List<Float>, modifier: Modifier = Modifier) {
 
 class NavItem(val label: String, val icon: Int)
 
-/** Floating glass dock with the four tabs. */
+/** Floating glass dock. [position] is the (fractional) page index, so the highlight slides with the pager. */
 @Composable
-fun GlassNav(items: List<NavItem>, selected: Int, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
+fun GlassNav(items: List<NavItem>, position: Float, onSelect: (Int) -> Unit, modifier: Modifier = Modifier) {
     val shape = RoundedCornerShape(32.dp)
-    Row(
+    BoxWithConstraints(
         modifier
             .clip(shape)
             .background(G.navFill.copy(alpha = 0.94f))
             .background(Brush.verticalGradient(listOf(G.tint.copy(0.14f), G.tint.copy(0.04f))))
             .border(1.dp, glassBorder(), shape)
             .padding(6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        items.forEachIndexed { i, item ->
-            val on = i == selected
-            val tint by animateColorAsState(if (on) G.cyan else G.textDim, label = "tint")
-            val pill by animateColorAsState(
-                if (on) G.tint.copy(alpha = 0.16f) else Color.Transparent, label = "pill")
-            Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(26.dp)).background(pill)
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null) { onSelect(i) }
-                    .padding(vertical = 9.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Icon(painterResource(item.icon), null, tint = tint, modifier = Modifier.size(24.dp))
-                Spacer(Modifier.height(2.dp))
-                Text(item.label, color = tint, fontSize = 11.sp,
-                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+        val itemW = maxWidth / items.size
+        val itemPx = with(androidx.compose.ui.platform.LocalDensity.current) { itemW.toPx() }
+        Box(Modifier.matchParentSize()) {
+            Box(
+                Modifier
+                    .offset { IntOffset((position * itemPx).roundToInt(), 0) }
+                    .width(itemW)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(26.dp))
+                    .background(Brush.horizontalGradient(listOf(G.cyan.copy(alpha = 0.30f), G.violet.copy(alpha = 0.24f)))))
+        }
+        Row(Modifier.fillMaxWidth()) {
+            items.forEachIndexed { i, item ->
+                val close = (1f - abs(position - i)).coerceIn(0f, 1f)
+                val tint = lerp(G.textDim, G.cyan, close)
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(26.dp))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null) { onSelect(i) }
+                        .padding(vertical = 9.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Icon(
+                        painterResource(item.icon), null, tint = tint,
+                        modifier = Modifier.size(24.dp).graphicsLayer {
+                            val sc = 1f + 0.2f * close
+                            scaleX = sc; scaleY = sc
+                            translationY = -3.dp.toPx() * close
+                        })
+                    Spacer(Modifier.height(2.dp))
+                    Text(item.label, color = tint, fontSize = 11.sp,
+                        fontWeight = if (close > 0.5f) FontWeight.SemiBold else FontWeight.Normal)
+                }
             }
         }
     }
@@ -425,87 +449,205 @@ fun GapH(h: Dp) = Spacer(Modifier.height(h))
 private val unusedBorderStroke = BorderStroke(0.dp, Color.Transparent)
 
 
-/** Vice-City sunset: striped sun, neon horizon, palms. */
+/** Vice-City night: stars, striped sun over the sea, neon skyline, palms. Slowly animated. */
 @Composable
 fun GtaBackground(modifier: Modifier = Modifier) {
-    val t = rememberInfiniteTransition(label = "gta")
+    val t = rememberInfiniteTransition(label = "vice")
     val glow by t.animateFloat(
-        0f, 1f, infiniteRepeatable(tween(5000, easing = LinearEasing), RepeatMode.Reverse), label = "glow")
+        0f, 1f, infiniteRepeatable(tween(4500, easing = LinearEasing), RepeatMode.Reverse), label = "glow")
+    val twinkle by t.animateFloat(
+        0f, 1f, infiniteRepeatable(tween(2600, easing = LinearEasing), RepeatMode.Reverse), label = "tw")
+    val drift by t.animateFloat(
+        0f, 1f, infiniteRepeatable(tween(60000, easing = LinearEasing), RepeatMode.Restart), label = "drift")
+    val shimmer by t.animateFloat(
+        0f, 1f, infiniteRepeatable(tween(3200, easing = LinearEasing), RepeatMode.Reverse), label = "sh")
+
+    val rnd = remember { kotlin.random.Random(7) }
+    val stars = remember { List(60) { Triple(rnd.nextFloat(), rnd.nextFloat() * 0.34f, rnd.nextFloat()) } }
+    // skyline: (x fraction, width fraction, height fraction, layer)
+    val towers = remember {
+        val r = kotlin.random.Random(11)
+        buildList {
+            var x = -0.02f
+            while (x < 1.02f) {
+                val wd = 0.035f + r.nextFloat() * 0.055f
+                add(floatArrayOf(x, wd, 0.05f + r.nextFloat() * 0.17f, r.nextFloat()))
+                x += wd * (0.75f + r.nextFloat() * 0.35f)
+            }
+        }
+    }
+
     Canvas(modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
+        val horizon = h * 0.60f
+        val seaEnd = h * 0.80f
+
+        // sky
         drawRect(Brush.verticalGradient(
-            listOf(Color(0xFF12052B), Color(0xFF3A0B63), Color(0xFFB0197A), Color(0xFFFF4F8B), Color(0xFFFF9A3C)),
-            startY = 0f, endY = h * 0.72f))
+            listOf(Color(0xFF0B0224), Color(0xFF2A0A5E), Color(0xFF8E1B8F), Color(0xFFFF3E9A), Color(0xFFFF8A3D), Color(0xFFFFC35A)),
+            startY = 0f, endY = horizon))
+
+        // stars
+        stars.forEach { (sx, sy, ph) ->
+            val a = 0.25f + 0.55f * (0.5f + 0.5f * kotlin.math.sin((twinkle + ph) * 6.28f))
+            drawCircle(Color.White.copy(alpha = a * (1f - sy / 0.34f)), radius = (0.8f + ph * 1.4f).dp.toPx(),
+                center = Offset(sx * w, sy * h))
+        }
+
         // sun
         val cx = w * 0.5f
-        val cy = h * 0.50f
-        val r = w * 0.34f
+        val r = w * 0.31f
+        val cy = horizon - r * 0.28f
         drawCircle(
             Brush.radialGradient(
-                listOf(Color(0xFFFFB347).copy(alpha = 0.35f + 0.15f * glow), Color.Transparent),
-                center = Offset(cx, cy), radius = r * 1.9f),
-            radius = r * 1.9f, center = Offset(cx, cy))
+                listOf(Color(0xFFFFB347).copy(alpha = 0.40f + 0.18f * glow), Color(0xFFFF3E9A).copy(alpha = 0.12f), Color.Transparent),
+                center = Offset(cx, cy), radius = r * 2.3f),
+            radius = r * 2.3f, center = Offset(cx, cy))
         drawCircle(
             Brush.verticalGradient(
-                listOf(Color(0xFFFFE259), Color(0xFFFF9A3C), Color(0xFFFF3B8B)),
+                listOf(Color(0xFFFFF176), Color(0xFFFFA63D), Color(0xFFFF3B8B)),
                 startY = cy - r, endY = cy + r),
             radius = r, center = Offset(cx, cy))
-        // horizontal cut-outs in the lower half of the sun
-        val bg = Color(0xFFB0197A)
-        var y = cy + r * 0.05f
-        var gap = r * 0.035f
+        // retro stripes through the lower half of the sun
+        var y = cy + r * 0.08f
+        var gap = r * 0.03f
         while (y < cy + r) {
-            drawRect(bg.copy(alpha = 0.95f), topLeft = Offset(cx - r, y), size = androidx.compose.ui.geometry.Size(2 * r, gap))
-            y += gap * 3.2f
+            drawRect(Color(0xFFB0197A), topLeft = Offset(cx - r, y),
+                size = androidx.compose.ui.geometry.Size(2 * r, gap))
+            y += gap * 3.3f
             gap += r * 0.012f
         }
-        // ground
-        val ground = h * 0.72f
-        drawRect(Brush.verticalGradient(listOf(Color(0xFF2A0A4A), Color(0xFF0D0220)), startY = ground, endY = h),
-            topLeft = Offset(0f, ground), size = androidx.compose.ui.geometry.Size(w, h - ground))
-        // neon horizon line
-        drawRect(Color(0xFFFF4FA3).copy(alpha = 0.55f + 0.3f * glow), topLeft = Offset(0f, ground),
-            size = androidx.compose.ui.geometry.Size(w, 3.dp.toPx()))
-        // perspective grid
-        val gridC = Color(0xFFFF4FA3).copy(alpha = 0.22f)
-        for (i in -8..8) {
-            drawLine(gridC, Offset(cx, ground), Offset(cx + i * w * 0.22f, h), strokeWidth = 1.dp.toPx())
+
+        // drifting neon clouds
+        for (i in 0..2) {
+            val yy = h * (0.17f + 0.10f * i)
+            val xx = ((drift + i * 0.33f) % 1f) * (w * 1.6f) - w * 0.3f
+            drawRoundRect(
+                Brush.horizontalGradient(
+                    listOf(Color.Transparent, Color(0xFFFF6EC7).copy(alpha = 0.35f), Color.Transparent),
+                    startX = xx, endX = xx + w * 0.7f),
+                topLeft = Offset(xx, yy), size = androidx.compose.ui.geometry.Size(w * 0.7f, 5.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(8.dp.toPx()))
         }
-        var gy = ground
+
+        // skyline (far layer lighter, near layer darker, lit windows)
+        for (layer in 0..1) {
+            towers.forEach { tw ->
+                if ((tw[3] > 0.5f) != (layer == 1)) return@forEach
+                val bx = tw[0] * w
+                val bw = tw[1] * w
+                val bh = tw[2] * h * (if (layer == 0) 1.0f else 0.72f)
+                val col = if (layer == 0) Color(0xFF3A0F6E) else Color(0xFF1A0540)
+                drawRect(col, topLeft = Offset(bx, horizon - bh), size = androidx.compose.ui.geometry.Size(bw, bh))
+                // neon roof edge
+                drawRect(Color(0xFFFF4FA3).copy(alpha = if (layer == 0) 0.55f else 0.85f),
+                    topLeft = Offset(bx, horizon - bh), size = androidx.compose.ui.geometry.Size(bw, 1.5.dp.toPx()))
+                // windows
+                val ws = 3.dp.toPx()
+                var wy = horizon - bh + 6.dp.toPx()
+                var row = 0
+                while (wy < horizon - 6.dp.toPx()) {
+                    var wx = bx + 4.dp.toPx()
+                    var colI = 0
+                    while (wx < bx + bw - 5.dp.toPx()) {
+                        val on = ((row * 7 + colI * 13 + (tw[0] * 100).toInt()) % 5) < 2
+                        if (on) {
+                            val c = if ((row + colI) % 3 == 0) Color(0xFF2DE2E6) else Color(0xFFFFB347)
+                            drawRect(c.copy(alpha = 0.55f + 0.3f * twinkle), topLeft = Offset(wx, wy),
+                                size = androidx.compose.ui.geometry.Size(ws, ws))
+                        }
+                        wx += ws * 2.2f
+                        colI++
+                    }
+                    wy += ws * 2.4f
+                    row++
+                }
+            }
+        }
+
+        // sea
+        drawRect(
+            Brush.verticalGradient(
+                listOf(Color(0xFF7A1B8C), Color(0xFF3A0B63), Color(0xFF1A0540)), startY = horizon, endY = seaEnd),
+            topLeft = Offset(0f, horizon), size = androidx.compose.ui.geometry.Size(w, seaEnd - horizon))
+        // sun reflection: shimmering bars narrowing downwards
+        var ry = horizon + 2.dp.toPx()
+        var rh = 3.dp.toPx()
+        var i = 0
+        while (ry < seaEnd) {
+            val widthK = (1f - (ry - horizon) / (seaEnd - horizon)) * (0.55f + 0.1f * shimmer * (if (i % 2 == 0) 1f else -1f))
+            val rw = r * 1.7f * widthK
+            drawRect(
+                Color(0xFFFFB347).copy(alpha = 0.55f * (1f - (ry - horizon) / (seaEnd - horizon))),
+                topLeft = Offset(cx - rw / 2f, ry), size = androidx.compose.ui.geometry.Size(rw, rh))
+            ry += rh * 2.1f
+            rh += 0.6f
+            i++
+        }
+        // neon horizon line
+        drawRect(Color(0xFFFF4FA3).copy(alpha = 0.6f + 0.3f * glow), topLeft = Offset(0f, horizon - 1.dp.toPx()),
+            size = androidx.compose.ui.geometry.Size(w, 2.dp.toPx()))
+
+        // foreground ground with a faint perspective grid
+        drawRect(
+            Brush.verticalGradient(listOf(Color(0xFF1A0540), Color(0xFF080118)), startY = seaEnd, endY = h),
+            topLeft = Offset(0f, seaEnd), size = androidx.compose.ui.geometry.Size(w, h - seaEnd))
+        drawRect(Color(0xFF2DE2E6).copy(alpha = 0.5f + 0.25f * glow), topLeft = Offset(0f, seaEnd),
+            size = androidx.compose.ui.geometry.Size(w, 1.5.dp.toPx()))
+        val gridC = Color(0xFFFF4FA3).copy(alpha = 0.20f)
+        for (k in -9..9) {
+            drawLine(gridC, Offset(cx, seaEnd), Offset(cx + k * w * 0.20f, h), strokeWidth = 1.dp.toPx())
+        }
+        var gy = seaEnd
         var step = 6.dp.toPx()
         while (gy < h) {
             gy += step
-            step *= 1.35f
+            step *= 1.38f
             drawLine(gridC, Offset(0f, gy), Offset(w, gy), strokeWidth = 1.dp.toPx())
         }
+
         // palms
-        fun palm(x: Float, base: Float, height: Float, lean: Float) {
+        val dark = Color(0xFF07010F)
+        fun palm(x: Float, base: Float, height: Float, lean: Float, scale: Float) {
             val topX = x + lean
             val topY = base - height
             val trunk = androidx.compose.ui.graphics.Path().apply {
                 moveTo(x, base)
-                quadraticBezierTo(x + lean * 0.2f, base - height * 0.55f, topX, topY)
+                quadraticBezierTo(x + lean * 0.15f, base - height * 0.6f, topX, topY)
             }
-            val dark = Color(0xFF090116)
-            drawPath(trunk, dark, style = Stroke(width = 7.dp.toPx(), cap = StrokeCap.Round))
-            val fronds = listOf(-160f, -130f, -100f, -75f, -45f, -15f, 15f, 40f)
+            drawPath(trunk, dark, style = Stroke(width = 8.dp.toPx() * scale, cap = StrokeCap.Round))
+            val fronds = listOf(-175f, -150f, -125f, -100f, -78f, -55f, -30f, -5f, 20f, 45f)
             fronds.forEach { deg ->
                 val rad = Math.toRadians(deg.toDouble())
-                val len = height * 0.42f
+                val len = height * 0.46f
                 val ex = topX + (kotlin.math.cos(rad) * len).toFloat()
-                val ey = topY + (kotlin.math.sin(rad) * len).toFloat() * 0.8f + len * 0.25f
+                val ey = topY + (kotlin.math.sin(rad) * len).toFloat() * 0.55f + len * 0.42f
+                val ctrlX = (topX + ex) / 2f
+                val ctrlY = topY - len * 0.38f
                 val f = androidx.compose.ui.graphics.Path().apply {
                     moveTo(topX, topY)
-                    quadraticBezierTo((topX + ex) / 2f, topY - len * 0.3f, ex, ey)
+                    quadraticBezierTo(ctrlX, ctrlY, ex, ey)
                 }
-                drawPath(f, dark, style = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round))
+                drawPath(f, dark, style = Stroke(width = 4.dp.toPx() * scale, cap = StrokeCap.Round))
+                // leaflets along the frond
+                for (q in 1..7) {
+                    val tt = q / 8f
+                    val px = (1 - tt) * (1 - tt) * topX + 2 * (1 - tt) * tt * ctrlX + tt * tt * ex
+                    val py = (1 - tt) * (1 - tt) * topY + 2 * (1 - tt) * tt * ctrlY + tt * tt * ey
+                    val ll = len * 0.16f * (1f - tt * 0.5f)
+                    drawLine(dark, Offset(px, py), Offset(px + 0f, py + ll), strokeWidth = 2.dp.toPx() * scale, cap = StrokeCap.Round)
+                    drawLine(dark, Offset(px, py), Offset(px + ll * (if (ex > topX) 0.6f else -0.6f), py + ll * 0.7f),
+                        strokeWidth = 2.dp.toPx() * scale, cap = StrokeCap.Round)
+                }
             }
         }
-        palm(w * 0.08f, h, h * 0.36f, w * 0.06f)
-        palm(w * 0.93f, h, h * 0.30f, -w * 0.05f)
-        // keep the content readable
-        drawRect(Color(0xFF12052B).copy(alpha = 0.38f))
+        palm(w * 0.07f, h * 1.02f, h * 0.40f, w * 0.07f, 1f)
+        palm(w * 0.94f, h * 1.02f, h * 0.34f, -w * 0.06f, 0.9f)
+        palm(w * 0.20f, h * 1.02f, h * 0.20f, w * 0.03f, 0.6f)
+
+        // keep the UI readable
+        drawRect(Color(0xFF0B0224).copy(alpha = 0.34f))
     }
 }
 

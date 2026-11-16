@@ -1,6 +1,6 @@
 # TG WS Proxy для Android
 
-Android-версия запускает то же ядро (`proxy/`), что и десктопные сборки, внутри приложения (через [Chaquopy](https://chaquo.com/chaquopy/)). Прокси работает как foreground-сервис на `127.0.0.1:1443`, Telegram подключается к нему как к MTProto-прокси.
+Android-версия запускает прокси внутри приложения. Ядро написано на Rust (папка `rust-core/`); Python в проекте не используется. Прокси работает как foreground-сервис на `127.0.0.1:1443`, Telegram подключается к нему как к MTProto-прокси.
 
 ## Установка
 
@@ -16,7 +16,7 @@ Android-версия запускает то же ядро (`proxy/`), что и
 
 ## Сборка из исходников
 
-Нужны JDK 17, Android SDK и Python 3.12 (для pip внутри Chaquopy):
+Нужны JDK 17, Android SDK, Android NDK 26, Rust и `cargo-ndk` (`cargo install cargo-ndk`, `rustup target add aarch64-linux-android`):
 
 ```bash
 cd android
@@ -24,14 +24,12 @@ cd android
 # APK: android/app/build/outputs/apk/release/
 ```
 
-Ядро `proxy/` копируется в сборку автоматически, версия берётся из `proxy/__init__.py`. APK подписывается debug-ключом — для публикации в магазинах подставьте свой keystore в `android/app/build.gradle.kts`.
+Ядро `rust-core/` собирается Gradle автоматически, версия берётся из `rust-core/Cargo.toml`. APK подписывается debug-ключом — для публикации в магазинах подставьте свой keystore в `android/app/build.gradle.kts`.
 
 ## Альтернатива без APK: Termux
 
 ```bash
-pkg install python openssl
-pip install httpx[http2] cryptography certifi
-python -m proxy.tg_ws_proxy --port 1443
+pkg install rust
+cd rust-core
+cargo run --release --bin tgws -- --port 1443
 ```
-
-(запускать из корня репозитория)

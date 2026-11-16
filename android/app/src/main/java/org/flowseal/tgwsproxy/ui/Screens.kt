@@ -256,11 +256,13 @@ fun SettingsScreen(vm: MainViewModel) {
 // ================================= More =====================================================
 
 @Composable
-fun MoreScreen(vm: MainViewModel, onExport: () -> Unit, onImport: () -> Unit) {
+fun MoreScreen(vm: MainViewModel, onExport: () -> Unit, onImport: () -> Unit, onHelp: () -> Unit = {}) {
     val f = vm.form
     TabColumn {
         ScreenTitle(stringResource(R.string.tab_more))
 
+        GlassButton(stringResource(R.string.help_button), onHelp, Modifier.fillMaxWidth())
+        GapH(16.dp)
         GlassCard(Modifier.fillMaxWidth()) {
             SectionTitle(stringResource(R.string.sec_updates))
             Text(vm.updVersionLine, color = G.text, fontSize = 14.sp)

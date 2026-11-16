@@ -8,6 +8,12 @@ use crate::util::sanitize_log;
 static LINES: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 static VERBOSE: AtomicBool = AtomicBool::new(false);
 const CAP: usize = 400;
+static ECHO: AtomicBool = AtomicBool::new(false);
+
+/// Desktop CLI: also print every log line to stderr.
+pub fn set_echo(v: bool) {
+    ECHO.store(v, Ordering::Relaxed);
+}
 
 pub fn set_verbose(v: bool) {
     VERBOSE.store(v, Ordering::Relaxed);
@@ -24,6 +30,9 @@ pub fn log(level: &str, msg: String) {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     let t = format!("{:02}:{:02}:{:02}", (secs / 3600) % 24, (secs / 60) % 60, secs % 60);
     let line = format!("{} {:<5} {}", t, level, sanitize_log(&msg));
+    if ECHO.load(Ordering::Relaxed) {
+        eprintln!("{line}");
+    }
     if let Ok(mut q) = LINES.lock() {
         if q.len() >= CAP {
             q.pop_front();

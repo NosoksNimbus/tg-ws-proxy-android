@@ -40,6 +40,9 @@ object Settings {
         val t = saved.trim()
         return if (t == LEGACY_DC_IP || t == "4:149.154.167.220") DEFAULT_DC_IP else saved
     }
+    fun onboardingDone(ctx: Context): Boolean = prefs(ctx).getBoolean("onboarding_done", false)
+    fun setOnboardingDone(ctx: Context, v: Boolean) =
+        prefs(ctx).edit().putBoolean("onboarding_done", v).apply()
     fun theme(ctx: Context): String = prefs(ctx).getString("theme", "glass") ?: "glass"
     fun setTheme(ctx: Context, key: String) = prefs(ctx).edit().putString("theme", key).apply()
     fun cfproxy(ctx: Context): Boolean = prefs(ctx).getBoolean("cfproxy", true)

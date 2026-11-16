@@ -12,7 +12,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
+import kotlin.math.absoluteValue
+import org.flowseal.tgwsproxy.ui.Onboarding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -81,10 +91,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    @OptIn(ExperimentalFoundationApi::class)
     @Composable
     private fun App() {
-        var tab by rememberSaveable { mutableIntStateOf(0) }
-        LaunchedEffect(tab) { vm.logVisible = tab == 3 }
+        val pager = rememberPagerState { 4 }
+        val scope = rememberCoroutineScope()
+        var showHelp by rememberSaveable { mutableStateOf(!Settings.onboardingDone(this@MainActivity)) }
+        LaunchedEffect(pager.currentPage) { vm.logVisible = pager.currentPage == 3 }
         val light = !Themes.palette.dark
         LaunchedEffect(light) {
             val bar = if (light) SystemBarStyle.light(Color.Transparent.toArgb(), Color.Transparent.toArgb())
@@ -110,22 +123,50 @@ class MainActivity : ComponentActivity() {
 
         Box(Modifier.fillMaxSize()) {
             GlassBackground()
-            Box(Modifier.fillMaxSize().statusBarsPadding()) {
-                when (tab) {
-                    0 -> HomeScreen(vm)
-                    1 -> NetworkScreen(vm)
-                    2 -> SettingsScreen(vm)
-                    else -> MoreScreen(
-                        vm,
-                        onExport = { export.launch("tg-ws-proxy-settings.json") },
-                        onImport = { import.launch(arrayOf("*/*")) })
+            HorizontalPager(
+                state = pager,
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                beyondViewportPageCount = 1,
+            ) { page ->
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    // pages shrink and fade a little while they slide, for a soft "card deck" feel
+                    val off = ((pager.currentPage - page) + pager.currentPageOffsetFraction)
+                        .absoluteValue.coerceIn(0f, 1f)
+                    alpha = 1f - 0.6f * off
+                    val sc = 1f - 0.07f * off
+                    scaleX = sc
+                    scaleY = sc
+                }) {
+                    when (page) {
+                        0 -> HomeScreen(vm)
+                        1 -> NetworkScreen(vm)
+                        2 -> SettingsScreen(vm)
+                        else -> MoreScreen(
+                            vm,
+                            onExport = { export.launch("tg-ws-proxy-settings.json") },
+                            onImport = { import.launch(arrayOf("*/*")) },
+                            onHelp = { showHelp = true })
+                    }
                 }
             }
             NavFade(Modifier.align(Alignment.BottomCenter))
             GlassNav(
-                items, tab, { tab = it },
+                items, pager.currentPage + pager.currentPageOffsetFraction,
+                { scope.launch { pager.animateScrollToPage(it) } },
                 Modifier.align(Alignment.BottomCenter).navigationBarsPadding()
                     .padding(horizontal = 24.dp, vertical = 14.dp).fillMaxWidth())
+            if (showHelp) {
+                Onboarding(
+                    onBattery = { vm.requestIgnoreBattery() },
+                    onOpenWarpSite = {
+                        startActivity(Intent(Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://warp-generation.github.io/")))
+                    },
+                    onDone = {
+                        Settings.setOnboardingDone(this@MainActivity, true)
+                        showHelp = false
+                    })
+            }
         }
     }
 

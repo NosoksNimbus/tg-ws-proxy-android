@@ -387,7 +387,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     // ================================ polling ================================================
 
-    /** Called from onResume/onPause. All Python calls stay off the UI thread. */
+    /** Called from onResume/onPause. All core calls stay off the UI thread. */
     fun setActive(active: Boolean) {
         if (!active) {
             pollJob?.cancel()

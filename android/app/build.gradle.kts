@@ -13,14 +13,14 @@ val buildRustCore by tasks.registering(Exec::class) {
     val out = file("src/main/jniLibs")
     val args = mutableListOf("cargo", "ndk")
     abis.forEach { args += listOf("-t", it) }
-    args += listOf("-o", out.absolutePath, "build", "--release")
+    args += listOf("-o", out.absolutePath, "build", "--release", "--lib")
     commandLine(args)
 }
 tasks.named("preBuild") { dependsOn(buildRustCore) }
 
-// Core version comes from proxy/__init__.py so the app follows the desktop release.
-val coreVersion: String = Regex("""__version__\s*=\s*"([^"]+)"""")
-    .find(rootProject.file("../proxy/__init__.py").readText())
+// Core version comes from rust-core/Cargo.toml.
+val coreVersion: String = Regex("""(?m)^version\s*=\s*"([^"]+)"""")
+    .find(rootProject.file("../rust-core/Cargo.toml").readText())
     ?.groupValues?.get(1) ?: "0.0.0"
 
 // Release builds pass -PappVersion=<core>.<revision> (e.g. 1.11.4.2) so the app

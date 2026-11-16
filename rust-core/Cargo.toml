@@ -1,13 +1,18 @@
 [package]
 name = "tgws_core"
-version = "0.1.0"
+version = "1.11.4"
 edition = "2021"
 license = "MIT"
-description = "Rust core of the TG WS Proxy Android app (MTProto -> WebSocket bridge)"
+description = "TG WS Proxy core and desktop CLI (MTProto -> WebSocket bridge)"
+default-run = "tgws"
 
 [lib]
 name = "tgws_core"
 crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "tgws"
+path = "src/bin/tgws.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "time", "sync", "macros"] }

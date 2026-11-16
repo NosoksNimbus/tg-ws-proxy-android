@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version without 'v' (e.g. 1.11.4.1). Empty = core version from proxy/__init__.py"
+        description: "Version without 'v' (e.g. 1.11.4.1). Empty = core version from rust-core/Cargo.toml"
         required: false
         default: ""
       release:
@@ -74,7 +74,7 @@ jobs:
             REL="${{ github.event.inputs.release }}"
           fi
           if [ -z "$V" ]; then
-            V=$(sed -n 's/.*__version__ *= *"\([^"]*\)".*/\1/p' proxy/__init__.py)
+            V=$(grep -m1 '^version' rust-core/Cargo.toml | cut -d'"' -f2)
           fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "release=$REL" >> "$GITHUB_OUTPUT"
@@ -130,5 +130,5 @@ jobs:
           gh release create "$TAG" "TgWsProxy-${{ steps.ver.outputs.version }}.apk" \
             --target "${{ github.sha }}" \
             --title "TG WS Proxy ${{ steps.ver.outputs.version }}" \
-            --notes "Android build of tg-ws-proxy core $(sed -n 's/.*__version__ *= *"\([^"]*\)".*/\1/p' proxy/__init__.py)." \
+            --notes "Android build of tg-ws-proxy core $(grep -m1 '^version' rust-core/Cargo.toml | cut -d'"' -f2)." \
             || gh release upload "$TAG" "TgWsProxy-${{ steps.ver.outputs.version }}.apk" --clobber

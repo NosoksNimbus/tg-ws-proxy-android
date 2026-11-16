@@ -168,4 +168,20 @@
     <string name="warp_st_paused">Another VPN is on, so WARP is paused. It comes back after that VPN is turned off.</string>
     <string name="warp_notif_title">WARP is paused</string>
     <string name="warp_notif_text">Tap to allow the VPN again and bring WARP back.</string>
+    <string name="help_button">How to use</string>
+    <string name="ob_skip">Skip</string>
+    <string name="ob_next">Next</string>
+    <string name="ob_done">Get started</string>
+    <string name="ob_battery">Turn off battery optimization</string>
+    <string name="ob_open_warp_site">Open the WARP config site</string>
+    <string name="ob_title_1">Welcome</string>
+    <string name="ob_text_1">TG WS Proxy is a proxy that runs right on your phone. Telegram connects to it, and the app sends the traffic over WebSocket to get around blocks. Nothing to install on a computer.</string>
+    <string name="ob_title_2">Start the proxy</string>
+    <string name="ob_text_2">On the Home tab tap the big power button. A "TG WS Proxy is running" notification appears — that is how Android allows the app to work in the background. Allow notifications if the system asks.</string>
+    <string name="ob_title_3">Add it to Telegram</string>
+    <string name="ob_text_3">Tap "Add to Telegram" on the Home tab and confirm. The proxy is set up in Telegram automatically. You can check it in Telegram: Settings → Data and Storage → Proxy. The link can also be copied with the button next to it.</string>
+    <string name="ob_title_4">Keep the system from stopping it</string>
+    <string name="ob_text_4">So that Android does not stop the proxy in the background, turn off battery optimization for the app. The button below opens the right screen. Settings also has a "Keep the phone awake" option.</string>
+    <string name="ob_title_5">Not working on mobile data?</string>
+    <string name="ob_text_5">Some operators block Telegram. Open the Network tab and tap "Check connection". If every route is red, turn on WARP: get a free config on the site below, load it in Settings → WARP and switch it on. The tunnel turns on by itself on mobile data and off on Wi-Fi.</string>
 </resources>
