@@ -104,6 +104,52 @@ fn tls_unverified() -> Arc<ClientConfig> {
     .clone()
 }
 
+/// TLS 1.3-only client config (no certificate checks): used only to build a probe ClientHello.
+pub fn tls13_probe_config() -> Arc<ClientConfig> {
+    Arc::new(
+        ClientConfig::builder_with_provider(provider())
+            .with_protocol_versions(&[&tokio_rustls::rustls::version::TLS13])
+            .expect("tls13")
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(NoVerify(provider())))
+            .with_no_client_auth(),
+    )
+}
+
+/// Minimal HTTPS GET (HTTP/1.1, Connection: close) returning the body of a 200 response.
+pub async fn https_get(host: &str, path: &str, tmo: Duration) -> Result<String, WsError> {
+    let run = async {
+        let tcp = TcpStream::connect((host, 443)).await.map_err(WsError::io)?;
+        let name = ServerName::try_from(host.to_string()).map_err(|e| WsError(e.to_string()))?;
+        let mut tls = TlsConnector::from(tls_verified()).connect(name, tcp).await.map_err(WsError::io)?;
+        let req = format!("GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: tg-ws-proxy\r\nConnection: close\r\n\r\n");
+        tls.write_all(req.as_bytes()).await.map_err(WsError::io)?;
+        let mut raw = Vec::new();
+        tls.read_to_end(&mut raw).await.map_err(WsError::io)?;
+        let text = String::from_utf8_lossy(&raw).to_string();
+        let (head, body) = text.split_once("\r\n\r\n").ok_or_else(|| WsError("bad response".into()))?;
+        if !head.starts_with("HTTP/1.1 200") {
+            return Err(WsError(format!("HTTP {}", head.lines().next().unwrap_or(""))));
+        }
+        // chunked transfer: de-chunk simply
+        if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
+            let mut out = String::new();
+            let mut rest = body;
+            while let Some((len_line, after)) = rest.split_once("\r\n") {
+                let n = usize::from_str_radix(len_line.trim(), 16).unwrap_or(0);
+                if n == 0 || after.len() < n {
+                    break;
+                }
+                out.push_str(&after[..n]);
+                rest = after[n..].trim_start_matches("\r\n");
+            }
+            return Ok(out);
+        }
+        Ok(body.to_string())
+    };
+    timeout(tmo, run).await.unwrap_or(Err(WsError::timeout()))
+}
+
 // ---- connection -------------------------------------------------------------------------------
 
 #[derive(Clone)]

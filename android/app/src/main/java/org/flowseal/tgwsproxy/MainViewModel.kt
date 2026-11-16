@@ -32,6 +32,8 @@ class FormState {
     var secret by mutableStateOf("")
     var dcIp by mutableStateOf("")
     var cfWorker by mutableStateOf("")
+    var fakeTls by mutableStateOf("")
+    var h2Media by mutableStateOf(true)
     var poolMobile by mutableStateOf("")
     var poolWifi by mutableStateOf("")
     var profiles by mutableStateOf(false)
@@ -115,6 +117,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         form.secret = Settings.secret(ctx)
         form.dcIp = Settings.dcIp(ctx)
         form.cfWorker = Settings.cfWorker(ctx)
+        form.fakeTls = Settings.fakeTls(ctx)
+        form.h2Media = Settings.h2Media(ctx)
         form.poolMobile = Settings.poolMobile(ctx).toString()
         form.poolWifi = Settings.poolWifi(ctx).toString()
         form.profiles = Settings.profiles(ctx)
@@ -174,6 +178,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         form.poolWifiError = null
 
         val before = Settings.toJson(ctx)
+        Settings.setFakeTls(ctx, form.fakeTls)
+        Settings.setH2Media(ctx, form.h2Media)
         Settings.save(
             ctx, p, s, form.dcIp, form.cfWorker, pm, pw, form.profiles, form.cfproxy,
             form.autostart, form.verbose, form.keepAwake, form.autoUpdate, form.wifiOnly,

@@ -15,7 +15,7 @@ use crate::config::{self, Cfg};
 use crate::obf::{self, CryptoCtx};
 use crate::stats;
 use crate::util::*;
-use crate::ws::{self, WsConn, WsError};
+use crate::ws::{self, Stream, WsConn, WsError};
 
 type Key = (u32, bool, bool); // (dc, media, test)
 
@@ -23,6 +23,9 @@ const POOL_MAX_AGE: Duration = Duration::from_secs(60);
 const TCP_BACKOFF_INITIAL: u64 = 30;
 const TCP_BACKOFF_MAX: u64 = 3600;
 const FRONT_SNI: &str = "sprinthost.ru";
+const CF_LIST_HOST: &str = "raw.githubusercontent.com";
+const CF_LIST_PATH: &str = "/Flowseal/tg-ws-proxy/main/.github/cfproxy-domains.txt";
+const CF_MIN_VALID: usize = 3;
 
 #[derive(Default)]
 struct PoolInner {
@@ -38,6 +41,8 @@ pub struct Shared {
     epoch: watch::Sender<u64>,
     tcp_backoff: Mutex<HashMap<String, (u32, Instant)>>,
     cf_current: Mutex<HashMap<u32, String>>,
+    cf_pool: Mutex<Vec<String>>,
+    h2: Arc<crate::h2lane::H2Pool>,
     front_first: AtomicBool,
     plain_until: AtomicU64,
 }
@@ -56,9 +61,40 @@ impl Shared {
             epoch,
             tcp_backoff: Mutex::new(HashMap::new()),
             cf_current: Mutex::new(HashMap::new()),
+            cf_pool: Mutex::new(Vec::new()),
+            h2: Arc::new(crate::h2lane::H2Pool::new()),
             front_first: AtomicBool::new(false),
             plain_until: AtomicU64::new(0),
         })
+    }
+
+    /// Downloads the community list of Cloudflare-proxied domains (unless the user set their own).
+    async fn refresh_cf_domains(&self) {
+        if !self.cfg.user_domains.is_empty() {
+            return;
+        }
+        let path = format!("{CF_LIST_PATH}?{}", rand::random::<u32>());
+        match ws::https_get(CF_LIST_HOST, &path, Duration::from_secs(10)).await {
+            Ok(text) => {
+                let items: Vec<String> = text
+                    .lines()
+                    .map(str::trim)
+                    .filter(|l| !l.is_empty() && !l.starts_with('#'))
+                    .map(decode_domain)
+                    .collect();
+                let pool = coerce_domains(&items);
+                if pool.len() >= CF_MIN_VALID {
+                    linfo!("CF proxy domain pool updated from GitHub ({} domains)", pool.len());
+                    if let Ok(mut g) = self.cf_pool.lock() {
+                        *g = pool;
+                    }
+                } else {
+                    lwarn!("Ignoring fetched CF proxy domains (total={}, valid={}, need>={}); keeping current pool",
+                        items.len(), pool.len(), CF_MIN_VALID);
+                }
+            }
+            Err(e) => lwarn!("CF proxy domain refresh failed ({e}); keeping current pool"),
+        }
     }
 
     // ---- Cloudflare transport selection ----------------------------------------------------
@@ -93,7 +129,12 @@ impl Shared {
     }
 
     fn cf_domains_for(&self, dc: u32) -> Vec<String> {
-        let base = if self.cfg.user_domains.is_empty() { default_cf_domains() } else { self.cfg.user_domains.clone() };
+        let base = if !self.cfg.user_domains.is_empty() {
+            self.cfg.user_domains.clone()
+        } else {
+            let p = self.cf_pool.lock().map(|g| g.clone()).unwrap_or_default();
+            if p.is_empty() { default_cf_domains() } else { p }
+        };
         let current = self.cf_current.lock().ok().and_then(|m| m.get(&dc).cloned());
         let mut rest: Vec<String> = base.into_iter().filter(|d| Some(d) != current.as_ref()).collect();
         rest.shuffle(&mut rand::thread_rng());
@@ -329,17 +370,39 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
     let _ = sock.set_nodelay(true);
 
     let mut hs = [0u8; HANDSHAKE_LEN];
-    match timeout(Duration::from_secs(10), sock.read_exact(&mut hs)).await {
-        Ok(Ok(_)) => {}
-        Ok(Err(_)) => {
-            ldebug!("[{label}] client disconnected before handshake");
-            return;
+    let fake = !sh.cfg.fake_tls_domain.is_empty();
+    let client: Stream;
+    if fake {
+        let mut first = [0u8; 1];
+        match timeout(Duration::from_secs(10), sock.read_exact(&mut first)).await {
+            Ok(Ok(_)) => {}
+            _ => {
+                ldebug!("[{label}] client disconnected before handshake");
+                return;
+            }
         }
-        Err(_) => {
-            lwarn!("[{label}] timeout during handshake");
-            return;
+        match crate::fake_tls::accept(sock, first[0], &sh.cfg.secret, &sh.cfg.fake_tls_domain, &label).await {
+            crate::fake_tls::Accepted::Tls(init, st) => {
+                hs = init;
+                client = Box::new(st);
+            }
+            crate::fake_tls::Accepted::Done => return,
         }
+    } else {
+        match timeout(Duration::from_secs(10), sock.read_exact(&mut hs)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(_)) => {
+                ldebug!("[{label}] client disconnected before handshake");
+                return;
+            }
+            Err(_) => {
+                lwarn!("[{label}] timeout during handshake");
+                return;
+            }
+        }
+        client = Box::new(sock);
     }
+    let mut sock = client;
     let Some(h) = obf::try_handshake(&hs, &sh.cfg.secret) else {
         stats::inc(&stats::BAD);
         lwarn!("[{label}] bad handshake (wrong secret or proto)");
@@ -401,6 +464,16 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
         methods.push(Method::Tcp);
     }
     for m in methods {
+        // fast lane for media: HTTP/2 POSTs through Cloudflare instead of a WebSocket
+        if matches!(m, Method::Cf) && media && sh.cfg.h2_media {
+            let domains = sh.cf_domains_for(dc);
+            if let Some(ch) = sh.h2.open(dc, &domains, &label).await {
+                stats::inc(&stats::CF);
+                crate::h2lane::bridge(sock, ch, ctx, h.tag, sh.h2.clone(), &label).await;
+                linfo!("[{label}] DC{dc}{tag} fallback closed");
+                return;
+            }
+        }
         let up = match m {
             Method::Worker => worker_ws(&sh, &label, dc, media, dst.unwrap_or("")).await
                 .map(|c| (Upstream::Ws { conn: c, splitter: false }, &stats::CF)),
@@ -434,11 +507,11 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
 }
 
 async fn bridge_ws(
-    client: TcpStream, conn: WsConn, ctx: CryptoCtx, mut splitter: Option<MsgSplitter>,
+    client: Stream, conn: WsConn, ctx: CryptoCtx, mut splitter: Option<MsgSplitter>,
     label: &str, dc: u32, media: bool,
 ) {
     let started = Instant::now();
-    let (mut cr, mut cw) = client.into_split();
+    let (mut cr, mut cw) = tokio::io::split(client);
     let WsConn { r: mut wr, w: ww } = conn;
     let CryptoCtx { mut clt_dec, mut clt_enc, mut tg_enc, mut tg_dec } = ctx;
     let ww_up = ww.clone();
@@ -508,8 +581,8 @@ async fn bridge_ws(
     );
 }
 
-async fn bridge_tcp(client: TcpStream, remote: TcpStream, ctx: CryptoCtx, label: &str) {
-    let (mut cr, mut cw) = client.into_split();
+async fn bridge_tcp(client: Stream, remote: TcpStream, ctx: CryptoCtx, label: &str) {
+    let (mut cr, mut cw) = tokio::io::split(client);
     let (mut rr, mut rw) = remote.into_split();
     let CryptoCtx { mut clt_dec, mut clt_enc, mut tg_enc, mut tg_dec } = ctx;
     let up = async move {
@@ -650,7 +723,31 @@ pub fn start(cfg_json: &str) -> String {
             Err(e) => return format!("listener: {e}"),
         };
         sh.warmup();
-        tokio::spawn(accept_loop(l, sh.clone(), stop_rx));
+        if sh.cfg.user_domains.is_empty() && sh.cfg.cfproxy {
+            let shr = sh.clone();
+            tokio::spawn(async move {
+                loop {
+                    shr.refresh_cf_domains().await;
+                    sleep(Duration::from_secs(3600)).await;
+                }
+            });
+        }
+        crate::fake_tls::set_profiled_len(None);
+        let shl = sh.clone();
+        tokio::spawn(async move {
+            // measure the masking site before accepting clients, like the Python core
+            if !shl.cfg.fake_tls_domain.is_empty() {
+                let d = shl.cfg.fake_tls_domain.clone();
+                linfo!("  Fake TLS: {d}");
+                let len = crate::fake_tls::probe_appdata_len(&d).await;
+                crate::fake_tls::set_profiled_len(len);
+                match len {
+                    Some(l) => linfo!("Fake TLS profile: first encrypted record {l} bytes"),
+                    None => lwarn!("Fake TLS profile unavailable, ServerHello uses random record sizes"),
+                }
+            }
+            accept_loop(l, shl, stop_rx).await;
+        });
     }
     RUNNING.store(true, Relaxed);
     *guard = Some(Running { rt, sh, stop: stop_tx });

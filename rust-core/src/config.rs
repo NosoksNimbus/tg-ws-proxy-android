@@ -15,6 +15,9 @@ pub struct Cfg {
     /// "auto" (TLS:443 then plain:80), "plain", "tls"
     pub cf_mode: String,
     pub force_test_dc: bool,
+    /// Fake-TLS masking domain; empty = Fake-TLS off.
+    pub fake_tls_domain: String,
+    pub h2_media: bool,
 }
 
 fn str_list(v: Option<&serde_json::Value>) -> Vec<String> {
@@ -57,5 +60,7 @@ pub fn parse(json: &str) -> Result<Cfg, String> {
         no_secure: v["no_secure"].as_bool().unwrap_or(false),
         cf_mode: v["cf_mode"].as_str().unwrap_or("auto").to_string(),
         force_test_dc: v["force_test_dc"].as_bool().unwrap_or(false),
+        fake_tls_domain: v["fake_tls_domain"].as_str().unwrap_or("").trim().to_lowercase(),
+        h2_media: v["h2_media"].as_bool().unwrap_or(true),
     })
 }

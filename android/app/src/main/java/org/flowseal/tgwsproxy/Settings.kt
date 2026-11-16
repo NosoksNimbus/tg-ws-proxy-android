@@ -58,6 +58,12 @@ object Settings {
     /** The pool size to use right now, following the current network when profiles are on. */
     fun effectivePool(ctx: Context, net: Net = Net.current(ctx)): Int =
         if (profiles(ctx) && net == Net.WIFI) poolWifi(ctx) else poolMobile(ctx)
+    /** Fake-TLS masking domain; empty = off (classic `dd` secret). */
+    fun fakeTls(ctx: Context): String = prefs(ctx).getString("fake_tls", "") ?: ""
+    fun setFakeTls(ctx: Context, v: String) = prefs(ctx).edit().putString("fake_tls", v.trim().lowercase()).apply()
+    fun h2Media(ctx: Context): Boolean = prefs(ctx).getBoolean("h2_media", true)
+    fun setH2Media(ctx: Context, v: Boolean) = prefs(ctx).edit().putBoolean("h2_media", v).apply()
+
     fun cfWorker(ctx: Context): String = prefs(ctx).getString("cf_worker", "") ?: ""
     fun autostart(ctx: Context): Boolean = prefs(ctx).getBoolean("autostart", false)
     fun verbose(ctx: Context): Boolean = prefs(ctx).getBoolean("verbose", false)
@@ -104,8 +110,12 @@ object Settings {
             .apply()
     }
 
-    fun link(ctx: Context): String =
-        "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=dd${secret(ctx)}"
+    fun link(ctx: Context): String {
+        val d = fakeTls(ctx)
+        val sec = if (d.isEmpty()) "dd${secret(ctx)}"
+        else "ee${secret(ctx)}" + d.toByteArray(Charsets.US_ASCII).joinToString("") { "%02x".format(it) }
+        return "tg://proxy?server=127.0.0.1&port=${port(ctx)}&secret=$sec"
+    }
 
     fun toJson(ctx: Context): String {
         val dc = JSONArray()
@@ -123,6 +133,8 @@ object Settings {
             .put("cfproxy_worker_domain", workers)
             .put("pool_size", effectivePool(ctx))
             .put("verbose", verbose(ctx))
+            .put("fake_tls_domain", fakeTls(ctx))
+            .put("h2_media", h2Media(ctx))
             .toString()
     }
 

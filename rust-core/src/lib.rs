@@ -11,6 +11,8 @@ pub mod logbuf;
 pub mod stats;
 pub mod obf;
 pub mod ws;
+pub mod fake_tls;
+pub mod h2lane;
 pub mod proxy;
 pub mod diag;
 mod jni_api;

@@ -8,6 +8,7 @@ pub static WS: AtomicU64 = AtomicU64::new(0);
 pub static CF: AtomicU64 = AtomicU64::new(0);
 pub static TCP: AtomicU64 = AtomicU64::new(0);
 pub static ERRORS: AtomicU64 = AtomicU64::new(0);
+pub static MASKED: AtomicU64 = AtomicU64::new(0);
 pub static BAD: AtomicU64 = AtomicU64::new(0);
 pub static POOL_HITS: AtomicU64 = AtomicU64::new(0);
 pub static POOL_MISSES: AtomicU64 = AtomicU64::new(0);
@@ -25,7 +26,7 @@ pub fn sub1(c: &AtomicU64) {
 }
 
 pub fn reset() {
-    for c in [&UP, &DOWN, &ACTIVE, &TOTAL, &WS, &CF, &TCP, &ERRORS, &BAD, &POOL_HITS, &POOL_MISSES] {
+    for c in [&UP, &DOWN, &ACTIVE, &TOTAL, &WS, &CF, &TCP, &ERRORS, &BAD, &MASKED, &POOL_HITS, &POOL_MISSES] {
         c.store(0, Relaxed);
     }
 }

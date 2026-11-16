@@ -184,4 +184,8 @@
     <string name="ob_text_4">So that Android does not stop the proxy in the background, turn off battery optimization for the app. The button below opens the right screen. Settings also has a "Keep the phone awake" option.</string>
     <string name="ob_title_5">Not working on mobile data?</string>
     <string name="ob_text_5">Some operators block Telegram. Open the Network tab and tap "Check connection". If every route is red, turn on WARP: get a free config on the site below, load it in Settings → WARP and switch it on. The tunnel turns on by itself on mobile data and off on Wi-Fi.</string>
+    <string name="h2_media">HTTP/2 lane for media</string>
+    <string name="h2_media_hint">Faster media downloads through Cloudflare (needs the Cloudflare fallback).</string>
+    <string name="fake_tls">Fake-TLS domain (optional)</string>
+    <string name="fake_tls_hint">Disguises the proxy as HTTPS to this site, e.g. www.google.com. When set, the link uses an ee secret. Empty = off.</string>
 </resources>

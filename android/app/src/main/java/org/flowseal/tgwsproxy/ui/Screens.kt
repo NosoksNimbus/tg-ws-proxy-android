@@ -230,6 +230,11 @@ fun SettingsScreen(vm: MainViewModel) {
             GlassField(f.cfWorker, { f.cfWorker = it }, stringResource(R.string.cf_worker),
                 singleLine = false, minLines = 2, mono = true)
             Hint(stringResource(R.string.cf_worker_hint), Modifier.padding(top = 4.dp))
+            GlassSwitchRow(stringResource(R.string.h2_media), f.h2Media, { f.h2Media = it })
+            Hint(stringResource(R.string.h2_media_hint), Modifier.padding(top = 4.dp))
+            GlassField(f.fakeTls, { f.fakeTls = it }, stringResource(R.string.fake_tls),
+                singleLine = true, mono = true)
+            Hint(stringResource(R.string.fake_tls_hint), Modifier.padding(top = 4.dp))
         }
 
         GapH(16.dp)
