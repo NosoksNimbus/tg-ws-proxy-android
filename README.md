@@ -83,7 +83,7 @@ Cloudflare (`kws<DC>.<домен>/api`) и **автозагрузка списк
 
 ## Десктоп (Windows, Linux, macOS)
 
-Это же Rust-ядро собирается как консольная программа `tgws` без Python:
+Это же Rust-ядро собирается как консольная программа `tgws`:
 
 ```bash
 cd rust-core
