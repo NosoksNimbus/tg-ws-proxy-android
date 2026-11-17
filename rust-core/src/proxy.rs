@@ -43,6 +43,7 @@ pub struct Shared {
     cf_current: Mutex<HashMap<u32, String>>,
     cf_pool: Mutex<Vec<String>>,
     h2: Arc<crate::h2lane::H2Pool>,
+    sticky: Mutex<HashMap<u32, (Method, Instant)>>,
     front_first: AtomicBool,
     plain_until: AtomicU64,
 }
@@ -63,6 +64,7 @@ impl Shared {
             cf_current: Mutex::new(HashMap::new()),
             cf_pool: Mutex::new(Vec::new()),
             h2: Arc::new(crate::h2lane::H2Pool::new()),
+            sticky: Mutex::new(HashMap::new()),
             front_first: AtomicBool::new(false),
             plain_until: AtomicU64::new(0),
         })
@@ -114,7 +116,7 @@ impl Shared {
         let modes = self.cf_modes();
         let mut last = WsError("no transport".into());
         for (i, secure) in modes.iter().enumerate() {
-            match ws::connect(host, host, Duration::from_secs(10), path, None, *secure).await {
+            match ws::connect(host, host, Duration::from_secs(5), path, None, *secure).await {
                 Ok(c) => {
                     if !*secure && i > 0 && self.cfg.cf_mode == "auto" {
                         self.plain_until.store(now_secs() + 600, Relaxed);
@@ -148,26 +150,37 @@ impl Shared {
 
     // ---- direct WebSocket pool -------------------------------------------------------------
 
-    async fn connect_one(&self, ip: &str, domains: &[String], path: &str) -> Option<WsConn> {
+    async fn connect_one(self: &Arc<Self>, ip: &str, domains: &[String], path: &str) -> Option<WsConn> {
+        let first = self.front_first.load(Relaxed);
+        let mut combos: Vec<(String, bool)> = Vec::new();
         for d in domains {
-            let first = self.front_first.load(Relaxed);
-            for fronted in [first, !first] {
-                let tmo = Duration::from_secs(if fronted { 7 } else { 8 });
-                let sni = if fronted { Some(FRONT_SNI) } else { None };
-                match ws::connect(ip, d, tmo, path, sni, true).await {
+            combos.push((d.clone(), first));
+            combos.push((d.clone(), !first));
+        }
+        let n = combos.len();
+        let (sh, ip, path) = (self.clone(), ip.to_string(), path.to_string());
+        let combos = Arc::new(combos);
+        // Happy-eyeballs style: the next variant starts 400 ms after the previous one.
+        race(n, Duration::from_millis(400), move |i| {
+            let (sh, ip, path, combos) = (sh.clone(), ip.clone(), path.clone(), combos.clone());
+            async move {
+                let (d, fronted) = &combos[i];
+                let sni = if *fronted { Some(FRONT_SNI) } else { None };
+                match ws::connect(&ip, d, Duration::from_secs(5), &path, sni, true).await {
                     Ok(c) => {
-                        self.front_first.store(fronted, Relaxed);
+                        sh.front_first.store(*fronted, Relaxed);
                         ldebug!("WS pool connected {d}{path} via {ip} (fronting={fronted})");
-                        return Some(c);
+                        Some(c)
                     }
                     Err(e) => {
                         stats::inc(&stats::ERRORS);
                         ldebug!("WS pool connect {d}{path} via {ip} (fronting={fronted}): {e}");
+                        None
                     }
                 }
             }
-        }
-        None
+        })
+        .await
     }
 
     fn pool_get(self: &Arc<Self>, key: Key) -> Option<WsConn> {
@@ -258,6 +271,15 @@ impl Shared {
         if let Ok(mut t) = self.tcp_backoff.lock() {
             t.clear();
         }
+        if let Ok(mut t) = self.sticky.lock() {
+            t.clear();
+        }
+    }
+
+    fn note_ok(&self, dc: u32, m: Method) {
+        if let Ok(mut s) = self.sticky.lock() {
+            s.insert(dc, (m, Instant::now()));
+        }
     }
 
     fn drop_stale(&self) {
@@ -269,6 +291,31 @@ impl Shared {
     }
 }
 
+/// Starts `n` attempts staggered by `stagger` and returns the first success (rest are cancelled).
+async fn race<T, F, Fut>(n: usize, stagger: Duration, f: F) -> Option<T>
+where
+    T: Send + 'static,
+    F: Fn(usize) -> Fut,
+    Fut: std::future::Future<Output = Option<T>> + Send + 'static,
+{
+    let mut set = tokio::task::JoinSet::new();
+    for i in 0..n {
+        let fut = f(i);
+        set.spawn(async move {
+            if i > 0 {
+                sleep(stagger * i as u32).await;
+            }
+            fut.await
+        });
+    }
+    while let Some(r) = set.join_next().await {
+        if let Ok(Some(v)) = r {
+            return Some(v);
+        }
+    }
+    None
+}
+
 // ---- upstream selection ---------------------------------------------------------------------
 
 enum Upstream {
@@ -276,6 +323,7 @@ enum Upstream {
     Tcp(TcpStream),
 }
 
+#[derive(Clone, Copy, PartialEq)]
 enum Method {
     Worker,
     Cf,
@@ -298,19 +346,30 @@ async fn worker_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool, dst: &st
 async fn cf_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool) -> Option<WsConn> {
     let tag = if media { " media" } else { "" };
     linfo!("[{label}] DC{dc}{tag} -> trying CF proxy");
-    for base in sh.cf_domains_for(dc) {
-        let host = format!("kws{dc}.{base}");
-        match sh.cf_connect(&host, "/apiws").await {
-            Ok(c) => {
-                if let Ok(mut m) = sh.cf_current.lock() {
-                    m.insert(dc, base);
+    let domains: Vec<String> = sh.cf_domains_for(dc).into_iter().take(4).collect();
+    let n = domains.len();
+    let domains = Arc::new(domains);
+    let (shc, label_s) = (sh.clone(), label.to_string());
+    race(n, Duration::from_millis(600), move |i| {
+        let (sh, domains, label) = (shc.clone(), domains.clone(), label_s.clone());
+        async move {
+            let base = domains[i].clone();
+            let host = format!("kws{dc}.{base}");
+            match sh.cf_connect(&host, "/apiws").await {
+                Ok(c) => {
+                    if let Ok(mut m) = sh.cf_current.lock() {
+                        m.insert(dc, base);
+                    }
+                    Some(c)
                 }
-                return Some(c);
+                Err(e) => {
+                    lwarn!("[{label}] DC{dc} CF proxy failed: {e}");
+                    None
+                }
             }
-            Err(e) => lwarn!("[{label}] DC{dc}{tag} CF proxy failed: {e}"),
         }
-    }
-    None
+    })
+    .await
 }
 
 async fn tcp_up(sh: &Arc<Shared>, label: &str, dst: &str) -> Option<TcpStream> {
@@ -324,7 +383,7 @@ async fn tcp_up(sh: &Arc<Shared>, label: &str, dst: &str) -> Option<TcpStream> {
         }
     }
     linfo!("[{label}] TCP fallback to {key}");
-    let r = timeout(Duration::from_secs(10), TcpStream::connect((dst, 443u16))).await;
+    let r = timeout(Duration::from_secs(5), TcpStream::connect((dst, 443u16))).await;
     match r {
         Ok(Ok(s)) => {
             let _ = s.set_nodelay(true);
@@ -368,6 +427,29 @@ impl Drop for ActiveGuard {
 async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
     let _g = ActiveGuard::new();
     let _ = sock.set_nodelay(true);
+
+    if sh.cfg.proxy_protocol {
+        // PROXY protocol v1: "PROXY TCP4 src dst sport dport\r\n" (max 107 bytes)
+        let mut line = Vec::with_capacity(108);
+        loop {
+            let mut b = [0u8; 1];
+            match timeout(Duration::from_secs(10), sock.read_exact(&mut b)).await {
+                Ok(Ok(_)) => line.push(b[0]),
+                _ => return,
+            }
+            if line.ends_with(b"\r\n") {
+                break;
+            }
+            if line.len() > 107 {
+                lwarn!("[{label}] invalid PROXY protocol header");
+                return;
+            }
+        }
+        if !line.starts_with(b"PROXY ") {
+            lwarn!("[{label}] missing PROXY protocol header");
+            return;
+        }
+    }
 
     let mut hs = [0u8; HANDSHAKE_LEN];
     let fake = !sh.cfg.fake_tls_domain.is_empty();
@@ -463,12 +545,17 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
     if dst.is_some() {
         methods.push(Method::Tcp);
     }
+    // try first whatever worked last time for this DC (a blocked direct path costs seconds)
+    let sticky = sh.sticky.lock().ok().and_then(|m| m.get(&dc).cloned())
+        .filter(|(_, t)| t.elapsed() < Duration::from_secs(600)).map(|(m, _)| m);
+    methods.sort_by_key(|m| if Some(*m) == sticky { 0 } else { 1 });
     for m in methods {
         // fast lane for media: HTTP/2 POSTs through Cloudflare instead of a WebSocket
         if matches!(m, Method::Cf) && media && sh.cfg.h2_media {
             let domains = sh.cf_domains_for(dc);
             if let Some(ch) = sh.h2.open(dc, &domains, &label).await {
                 stats::inc(&stats::CF);
+                sh.note_ok(dc, Method::Cf);
                 crate::h2lane::bridge(sock, ch, ctx, h.tag, sh.h2.clone(), &label).await;
                 linfo!("[{label}] DC{dc}{tag} fallback closed");
                 return;
@@ -483,6 +570,7 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
                 .map(|s| (Upstream::Tcp(s), &stats::TCP)),
         };
         let Some((up, counter)) = up else { continue };
+        sh.note_ok(dc, m);
         match up {
             Upstream::Ws { conn, splitter } => {
                 if conn.w.send(&relay_init).await.is_err() {

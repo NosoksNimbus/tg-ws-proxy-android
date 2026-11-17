@@ -188,4 +188,6 @@
     <string name="h2_media_hint">Faster media downloads through Cloudflare (needs the Cloudflare fallback).</string>
     <string name="fake_tls">Fake-TLS domain (optional)</string>
     <string name="fake_tls_hint">Disguises the proxy as HTTPS to this site, e.g. www.google.com. When set, the link uses an ee secret. Empty = off.</string>
+    <string name="warp_wifi">Also use WARP on Wi-Fi</string>
+    <string name="warp_wifi_hint">Off by default. Turn on if Telegram is blocked on your Wi-Fi too. Turn both switches off to disable WARP completely.</string>
 </resources>

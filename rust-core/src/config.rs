@@ -18,6 +18,8 @@ pub struct Cfg {
     /// Fake-TLS masking domain; empty = Fake-TLS off.
     pub fake_tls_domain: String,
     pub h2_media: bool,
+    /// Accept a PROXY protocol v1 header (behind nginx/haproxy).
+    pub proxy_protocol: bool,
 }
 
 fn str_list(v: Option<&serde_json::Value>) -> Vec<String> {
@@ -62,5 +64,6 @@ pub fn parse(json: &str) -> Result<Cfg, String> {
         force_test_dc: v["force_test_dc"].as_bool().unwrap_or(false),
         fake_tls_domain: v["fake_tls_domain"].as_str().unwrap_or("").trim().to_lowercase(),
         h2_media: v["h2_media"].as_bool().unwrap_or(true),
+        proxy_protocol: v["proxy_protocol"].as_bool().unwrap_or(false),
     })
 }

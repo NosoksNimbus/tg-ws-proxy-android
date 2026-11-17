@@ -188,4 +188,6 @@
     <string name="h2_media_hint">Быстрее скачивает медиа через Cloudflare (нужен резервный путь Cloudflare).</string>
     <string name="fake_tls">Fake-TLS домен (необязательно)</string>
     <string name="fake_tls_hint">Маскирует прокси под HTTPS-соединение с этим сайтом, например www.google.com. Если задан, ссылка использует secret ee. Пусто = выключено.</string>
+    <string name="warp_wifi">Использовать WARP и на Wi-Fi</string>
+    <string name="warp_wifi_hint">Выключено по умолчанию. Включите, если Telegram блокируется и на вашем Wi-Fi. Выключите оба переключателя, чтобы полностью отключить WARP.</string>
 </resources>

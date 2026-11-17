@@ -105,6 +105,16 @@ object WarpManager {
     fun enabled(ctx: Context): Boolean = prefs(ctx).getBoolean("enabled", false)
     fun hasConfig(ctx: Context): Boolean = !prefs(ctx).getString("conf", null).isNullOrBlank()
 
+    /** Also keep WARP on while connected to Wi-Fi (off by default). */
+    fun wifiEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("wifi_enabled", false)
+
+    fun setWifiEnabled(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("wifi_enabled", v).apply()
+        refresh(ctx)
+    }
+
+    private fun anyEnabled(ctx: Context): Boolean = enabled(ctx) || wifiEnabled(ctx)
+
     fun setEnabled(ctx: Context, v: Boolean) {
         prefs(ctx).edit().putBoolean("enabled", v).apply()
         refresh(ctx)
@@ -258,7 +268,7 @@ object WarpManager {
         synchronized(vpnNets) { vpnNets.clear() }
         down(app)
         cancelConsentNotification(app)
-        status = if (!enabled(app)) Status.OFF else Status.WAITING
+        status = if (!anyEnabled(app)) Status.OFF else Status.WAITING
     }
 
     // ---- decision logic -------------------------------------------------------------
@@ -278,7 +288,7 @@ object WarpManager {
     fun refresh(ctx: Context) {
         val app = ctx.applicationContext
         appCtx = app
-        if (!enabled(app)) {
+        if (!anyEnabled(app)) {
             down(app)
             cancelConsentNotification(app)
             status = Status.OFF
@@ -290,7 +300,9 @@ object WarpManager {
             return
         }
         val onMobileOnly: Boolean = synchronized(nets) { nets.isNotEmpty() && nets.values.none { it } }
-        if (!onMobileOnly) {
+        val onWifi: Boolean = synchronized(nets) { nets.values.any { it } }
+        val want = (enabled(app) && onMobileOnly) || (wifiEnabled(app) && onWifi)
+        if (!want) {
             down(app)
             cancelConsentNotification(app)
             status = Status.WAITING

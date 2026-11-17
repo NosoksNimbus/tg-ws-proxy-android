@@ -25,6 +25,7 @@ import org.flowseal.tgwsproxy.WarpManager
 fun WarpCard() {
     val ctx = LocalContext.current
     var enabled by remember { mutableStateOf(WarpManager.enabled(ctx)) }
+    var wifi by remember { mutableStateOf(WarpManager.wifiEnabled(ctx)) }
     var hasConfig by remember { mutableStateOf(WarpManager.hasConfig(ctx)) }
     var pasteError by remember { mutableStateOf<String?>(null) }
 
@@ -55,6 +56,15 @@ fun WarpCard() {
                 if (v) WarpManager.vpnPermissionIntent(ctx)?.let { consent.launch(it) }
             },
             stringResource(R.string.warp_auto_hint),
+        )
+        GlassSwitchRow(
+            stringResource(R.string.warp_wifi), wifi,
+            { v ->
+                wifi = v
+                WarpManager.setWifiEnabled(ctx, v)
+                if (v) WarpManager.vpnPermissionIntent(ctx)?.let { consent.launch(it) }
+            },
+            stringResource(R.string.warp_wifi_hint),
         )
         GapH(8.dp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {

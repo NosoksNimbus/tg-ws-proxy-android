@@ -2,6 +2,8 @@
 //! as `POST https://kws<dc>.<cf-domain>/api` over one multiplexed HTTP/2 connection per host, and
 //! the response body is the reply packet. This is the fast path for big media downloads.
 use std::collections::HashMap;
+use std::collections::{HashSet, VecDeque};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -11,7 +13,7 @@ use http::{Method, Request};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, Semaphore};
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
 use tokio_rustls::rustls::pki_types::ServerName;
 use tokio_rustls::rustls::{ClientConfig, RootCertStore};
 use tokio_rustls::TlsConnector;
@@ -25,7 +27,7 @@ const MAX_PLAIN_PADDING: usize = 256;
 const MAX_CHANNEL_REQUESTS: usize = 8;
 const DOMAIN_COOLDOWN: Duration = Duration::from_secs(30);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(65);
-const SETUP_TIMEOUT: Duration = Duration::from_secs(8);
+const SETUP_TIMEOUT: Duration = Duration::from_secs(5);
 
 struct Lane {
     send: SendRequest<Bytes>,
@@ -167,7 +169,7 @@ async fn futures_ready(s: &mut SendRequest<Bytes>) -> bool {
     matches!(timeout(Duration::from_secs(2), std::future::poll_fn(|cx| s.poll_ready(cx))).await, Ok(Ok(())))
 }
 
-async fn post(send: &SendRequest<Bytes>, host: &str, body: Vec<u8>) -> Result<Vec<u8>, ReqErr> {
+async fn post(send: &SendRequest<Bytes>, host: &str, body: Vec<u8>, rec: &AtomicBool, progress: &Mutex<Instant>) -> Result<Vec<u8>, ReqErr> {
     let run = async {
         let req = Request::builder()
             .method(Method::POST)
@@ -190,6 +192,8 @@ async fn post(send: &SendRequest<Bytes>, host: &str, body: Vec<u8>) -> Result<Ve
         if resp.headers().get("content-type").and_then(|v| v.to_str().ok()).map_or(false, |v| v.to_ascii_lowercase().contains("text/html")) {
             return Err(ReqErr::Other("CF /api returned HTML instead of MTProto".into()));
         }
+        rec.store(true, Ordering::Relaxed);
+        touch(progress);
         let mut body = resp.into_body();
         let mut out: Vec<u8> = Vec::new();
         while let Some(chunk) = body.data().await {
@@ -199,6 +203,7 @@ async fn post(send: &SendRequest<Bytes>, host: &str, body: Vec<u8>) -> Result<Ve
                 return Err(ReqErr::Other("H2 response exceeds native packet bound".into()));
             }
             out.extend_from_slice(&chunk);
+            touch(progress);
         }
         if !out.is_empty() && out.len() % 4 != 0 {
             return Err(ReqErr::Other("CF /api response is not an aligned MTProto packet".into()));
@@ -274,42 +279,235 @@ async fn read_packet<R: AsyncReadExt + Unpin>(r: &mut R, ctx: &mut Ctr, tag: [u8
     Ok(body)
 }
 
+fn touch(p: &Mutex<Instant>) {
+    if let Ok(mut g) = p.lock() {
+        *g = Instant::now();
+    }
+}
+
+// ---- replay recovery ----------------------------------------------------------------------
+// MTProto over HTTP only receives data as the response to a request. When the server has
+// something to push and the client has nothing in flight, the last encrypted packet is re-sent
+// as a poll (the server de-duplicates by msg_id). Same timings as the old Python core.
+
+const REPLAY_IDLE: Duration = Duration::from_secs(1);
+const REPLAY_REQUEST: Duration = Duration::from_secs(3);
+const REPLAY_CHECK: Duration = Duration::from_millis(250);
+const REPLAY_MAX_AGE: Duration = Duration::from_secs(30);
+const REPLAY_HISTORY_BYTES: usize = 64 * 1024;
+const REPLAY_HISTORY_PACKETS: usize = 16;
+const MAX_CHANNEL_REPLAYS: usize = 2;
+const REPLAY_RETRY: Duration = Duration::from_secs(2);
+const REPLAY_MAX_ATTEMPTS: u32 = 3;
+
+struct Packet {
+    body: Arc<Vec<u8>>,
+    sent_at: Instant,
+    attempts: u32,
+    last_attempt: Option<Instant>,
+    originals: HashSet<u64>,
+    pending: Option<u64>,
+    reply_id: Option<[u8; 24]>,
+}
+
+struct Pend {
+    sent: Instant,
+    replay: bool,
+    receiving: Arc<AtomicBool>,
+    packet: Option<u64>, // packet sequence number
+}
+
+#[derive(Default)]
+struct State {
+    history: VecDeque<(u64, Packet)>,
+    key: [u8; 8],
+    pend: HashMap<u64, Pend>,
+    next_id: u64,
+    seq: u64,
+}
+
+impl State {
+    fn packet_mut(&mut self, seq: u64) -> Option<&mut Packet> {
+        self.history.iter_mut().find(|(s, _)| *s == seq).map(|(_, p)| p)
+    }
+
+    fn remember(&mut self, body: &Arc<Vec<u8>>, now: Instant) -> Option<u64> {
+        let key: [u8; 8] = body[..8].try_into().ok()?;
+        if key == [0u8; 8] {
+            return None;
+        }
+        if self.key != key {
+            self.history.clear();
+            self.key = key;
+        }
+        if body.len() > REPLAY_HISTORY_BYTES {
+            return None;
+        }
+        if let Some((s, _)) = self.history.iter().find(|(_, p)| *p.body == **body) {
+            return Some(*s);
+        }
+        self.seq += 1;
+        let seq = self.seq;
+        self.history.push_back((seq, Packet {
+            body: body.clone(), sent_at: now, attempts: 0, last_attempt: None,
+            originals: HashSet::new(), pending: None, reply_id: None,
+        }));
+        // trim: oldest packets without live requests first
+        loop {
+            let bytes: usize = self.history.iter().map(|(_, p)| p.body.len()).sum();
+            if self.history.len() <= REPLAY_HISTORY_PACKETS && bytes <= REPLAY_HISTORY_BYTES {
+                break;
+            }
+            let idx = self.history.iter().position(|(_, p)| p.originals.is_empty() && p.pending.is_none()).unwrap_or(0);
+            self.history.remove(idx);
+        }
+        Some(seq)
+    }
+
+    fn overdue(&self, p: &Packet, now: Instant) -> bool {
+        p.originals.iter().any(|id| {
+            self.pend.get(id).map_or(false, |r| !r.receiving.load(Ordering::Relaxed) && now - r.sent >= REPLAY_REQUEST)
+        })
+    }
+
+    /// Picks the packet to poll with, following the Python core's blockers.
+    fn replay_candidate(&self, now: Instant, last_progress: Instant) -> Option<u64> {
+        if self.pend.values().any(|r| r.receiving.load(Ordering::Relaxed)) {
+            return None; // a body is arriving
+        }
+        let replays = self.pend.values().filter(|r| r.replay).count();
+        let last_seq = self.history.back().map(|(s, _)| *s);
+        let mut cands: Vec<(bool, i64, u64)> = Vec::new();
+        for (seq, p) in &self.history {
+            if now - p.sent_at > REPLAY_MAX_AGE {
+                continue;
+            }
+            let overdue = self.overdue(p, now);
+            let limit = if !p.originals.is_empty() || Some(*seq) == last_seq { REPLAY_MAX_ATTEMPTS } else { 0 };
+            if p.attempts >= limit {
+                continue;
+            }
+            if p.last_attempt.map_or(false, |t| now - t < REPLAY_RETRY) {
+                continue;
+            }
+            if !overdue {
+                let others = self.pend.iter().any(|(id, _)| Some(*id) != p.pending);
+                if Some(*seq) != last_seq || others {
+                    continue;
+                }
+                if p.last_attempt.is_some() && now - last_progress < REPLAY_IDLE {
+                    continue;
+                }
+            }
+            if p.pending.is_none() && replays >= MAX_CHANNEL_REPLAYS {
+                continue;
+            }
+            cands.push((!overdue, if overdue { *seq as i64 } else { -(*seq as i64) }, *seq));
+        }
+        cands.sort();
+        cands.first().map(|c| c.2)
+    }
+}
+
 /// Bridges a native client to the H2 lane until either side ends.
 pub async fn bridge(client: Stream, ch: Channel, ctx: CryptoCtx, tag: [u8; 4], pool: Arc<H2Pool>, label: &str) {
     let CryptoCtx { clt_dec: mut dec_ctx, mut clt_enc, .. } = ctx;
     let (mut cr, mut cw) = tokio::io::split(client);
-    let (tx, mut rx) = mpsc::channel::<Result<Vec<u8>, ReqErr>>(16);
+    let (tx, mut rx) = mpsc::channel::<(u64, Result<Vec<u8>, ReqErr>)>(16);
     let sem = Arc::new(Semaphore::new(MAX_CHANNEL_REQUESTS));
-    let send = ch.send.clone();
-    let host = ch.host.clone();
-    let tx_up = tx.clone();
+    let st = Arc::new(Mutex::new(State::default()));
+    let progress = Arc::new(Mutex::new(Instant::now()));
+    let delivering = Arc::new(AtomicBool::new(false));
 
+    // starts one POST (original or replay) and registers it in the state
+    let spawn_post = {
+        let (send, host, tx, st, progress) = (ch.send.clone(), ch.host.clone(), tx.clone(), st.clone(), progress.clone());
+        Arc::new(move |body: Arc<Vec<u8>>, replay: bool, seq: Option<u64>, permit: Option<tokio::sync::OwnedSemaphorePermit>| {
+            let rec = Arc::new(AtomicBool::new(false));
+            let now = Instant::now();
+            let id = {
+                let mut g = st.lock().unwrap_or_else(|p| p.into_inner());
+                g.next_id += 1;
+                let id = g.next_id;
+                g.pend.insert(id, Pend { sent: now, replay, receiving: rec.clone(), packet: seq });
+                if let Some(sq) = seq {
+                    if let Some(p) = g.packet_mut(sq) {
+                        if replay {
+                            p.attempts += 1;
+                            p.last_attempt = Some(now);
+                            p.pending = Some(id);
+                        } else {
+                            p.originals.insert(id);
+                        }
+                    }
+                }
+                id
+            };
+            let (send, host, tx, progress) = (send.clone(), host.clone(), tx.clone(), progress.clone());
+            tokio::spawn(async move {
+                let r = post(&send, &host, (*body).clone(), &rec, &progress).await;
+                drop(permit);
+                let _ = tx.send((id, r)).await;
+            });
+        })
+    };
+    drop(tx);
+
+    let up_spawn = spawn_post.clone();
+    let up_st = st.clone();
     let upload = async move {
         loop {
             let body = match read_packet(&mut cr, &mut dec_ctx, tag).await {
-                Ok(b) => b,
+                Ok(b) => Arc::new(b),
                 Err(_) => break, // client gone
             };
             stats::add(&stats::UP, body.len() as u64);
             let Ok(permit) = sem.clone().acquire_owned().await else { break };
-            let (send, host, tx) = (send.clone(), host.clone(), tx_up.clone());
-            tokio::spawn(async move {
-                let r = post(&send, &host, body).await;
-                drop(permit);
-                let _ = tx.send(r).await;
-            });
+            let seq = up_st.lock().unwrap_or_else(|p| p.into_inner()).remember(&body, Instant::now());
+            (*up_spawn)(body, false, seq, Some(permit));
         }
     };
-    drop(tx);
+
+    let (st_d, prog_d, deliv_d) = (st.clone(), progress.clone(), delivering.clone());
     let down = async {
-        while let Some(r) = rx.recv().await {
+        while let Some((id, r)) = rx.recv().await {
+            // bookkeeping for the finished request
+            let mut reply_changed = false;
+            {
+                let mut g = st_d.lock().unwrap_or_else(|p| p.into_inner());
+                if let Some(pd) = g.pend.remove(&id) {
+                    if let Some(sq) = pd.packet {
+                        if let Some(p) = g.packet_mut(sq) {
+                            p.originals.remove(&id);
+                            if p.pending == Some(id) {
+                                p.pending = None;
+                            }
+                            if let Ok(rep) = &r {
+                                if rep.len() >= 24 {
+                                    let rid: [u8; 24] = rep[..24].try_into().unwrap_or([0; 24]);
+                                    if p.reply_id != Some(rid) {
+                                        p.reply_id = Some(rid);
+                                        p.attempts = 0;
+                                        reply_changed = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            let _ = reply_changed;
             match r {
                 Ok(reply) if reply.is_empty() => {}
                 Ok(reply) => {
                     stats::add(&stats::DOWN, reply.len() as u64);
                     let Some(mut enc) = encode_reply(&reply, tag) else { break };
                     clt_enc.apply(&mut enc);
-                    if cw.write_all(&enc).await.is_err() {
+                    deliv_d.store(true, Ordering::Relaxed);
+                    let ok = cw.write_all(&enc).await.is_ok();
+                    deliv_d.store(false, Ordering::Relaxed);
+                    touch(&prog_d);
+                    if !ok {
                         break;
                     }
                 }
@@ -330,7 +528,29 @@ pub async fn bridge(client: Stream, ch: Channel, ctx: CryptoCtx, tag: [u8; 4], p
             }
         }
     };
-    tokio::select! { _ = upload => {}, _ = down => {} }
+
+    let recover_st = st.clone();
+    let recover = async move {
+        loop {
+            sleep(REPLAY_CHECK).await;
+            if delivering.load(Ordering::Relaxed) {
+                continue;
+            }
+            let last = *progress.lock().unwrap_or_else(|p| p.into_inner());
+            let now = Instant::now();
+            let pick = {
+                let g = recover_st.lock().unwrap_or_else(|p| p.into_inner());
+                g.replay_candidate(now, last).and_then(|seq| {
+                    g.history.iter().find(|(s, _)| *s == seq).map(|(s, p)| (*s, p.body.clone()))
+                })
+            };
+            if let Some((seq, body)) = pick {
+                (*spawn_post)(body, true, Some(seq), None);
+            }
+        }
+    };
+
+    tokio::select! { _ = upload => {}, _ = down => {}, _ = recover => {} }
     let _ = cw.shutdown().await;
     ldebug!("[{label}] H2 channel closed host={}", ch.host);
 }
