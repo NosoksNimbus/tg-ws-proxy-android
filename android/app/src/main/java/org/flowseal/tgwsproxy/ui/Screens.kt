@@ -114,11 +114,23 @@ fun NetworkScreen(vm: MainViewModel) {
                 stringResource(if (vm.checkRunning) R.string.check_running else R.string.check_run),
                 { vm.runCheck() }, Modifier.fillMaxWidth(), primary = true, enabled = !vm.checkRunning)
             vm.checkLines.forEach { l ->
+                // Long details (e.g. "ip tcp ok (443:y 80:y), handshake: timeout") go under the name;
+                // otherwise the name column gets squeezed to nothing and wraps letter by letter.
+                val long = l.detail.length > 14
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Dot(if (l.ok) G.mint else G.danger)
                     GapW(10.dp)
-                    Text(l.name, color = G.text, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                    Text(l.detail, color = G.textDim, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f)) {
+                        Text(l.name, color = G.text, fontSize = 14.sp)
+                        if (long) {
+                            Text(l.detail, color = G.textDim, fontSize = 12.sp,
+                                fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 2.dp))
+                        }
+                    }
+                    if (!long) {
+                        GapW(8.dp)
+                        Text(l.detail, color = G.textDim, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                    }
                 }
             }
             vm.checkVerdict?.let {

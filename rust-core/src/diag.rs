@@ -23,6 +23,21 @@ async fn tcp_connect(host: String, port: u16) -> Result<(), String> {
     TcpStream::connect((host.as_str(), port)).await.map(|_| ()).map_err(|e| ws::WsError::io(e).0)
 }
 
+/// Telegram TCP on 443, 80 and 5222 at the same time; ok if any answers.
+async fn tg_tcp(ip: String) -> Result<(), String> {
+    let mut set = tokio::task::JoinSet::new();
+    for port in TG_TCP_PORTS {
+        let ip = ip.clone();
+        set.spawn(async move { reach(ip, port).await });
+    }
+    while let Some(r) = set.join_next().await {
+        if matches!(r, Ok(true)) {
+            return Ok(());
+        }
+    }
+    Err("blocked 443/80/5222".into())
+}
+
 async fn reach(ip: String, port: u16) -> bool {
     matches!(timeout(Duration::from_millis(3500), TcpStream::connect((ip.as_str(), port))).await, Ok(Ok(_)))
 }
@@ -76,7 +91,7 @@ async fn run(cfg_json: &str) -> Result<String, String> {
     }
     for dc in dcs.keys() {
         if let Some(ip) = dc_default_ip(*dc, false) {
-            hs.push(tokio::spawn(probe(format!("TCP DC{dc}"), Duration::from_secs(6), tcp_connect(ip.to_string(), 443))));
+            hs.push(tokio::spawn(probe(format!("TCP DC{dc}"), Duration::from_secs(7), tg_tcp(ip.to_string()))));
         }
     }
     if cfg.cfproxy {

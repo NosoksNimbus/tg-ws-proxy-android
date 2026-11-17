@@ -382,8 +382,23 @@ async fn tcp_up(sh: &Arc<Shared>, label: &str, dst: &str) -> Option<TcpStream> {
             }
         }
     }
-    linfo!("[{label}] TCP fallback to {key}");
-    let r = timeout(Duration::from_secs(5), TcpStream::connect((dst, 443u16))).await;
+    linfo!("[{label}] TCP fallback to {dst} (ports 443/80/5222)");
+    let dsts = dst.to_string();
+    let r: Result<Result<TcpStream, std::io::Error>, ()> = match race(TG_TCP_PORTS.len(), Duration::from_millis(300), move |i| {
+        let d = dsts.clone();
+        async move {
+            let port = TG_TCP_PORTS[i];
+            match timeout(Duration::from_secs(5), TcpStream::connect((d.as_str(), port))).await {
+                Ok(Ok(s)) => Some(s),
+                _ => None,
+            }
+        }
+    })
+    .await
+    {
+        Some(s) => Ok(Ok(s)),
+        None => Err(()),
+    };
     match r {
         Ok(Ok(s)) => {
             let _ = s.set_nodelay(true);
@@ -392,11 +407,8 @@ async fn tcp_up(sh: &Arc<Shared>, label: &str, dst: &str) -> Option<TcpStream> {
             }
             Some(s)
         }
-        other => {
-            let why = match other {
-                Ok(Err(e)) => WsError::io(e).0,
-                _ => "timeout".into(),
-            };
+        _ => {
+            let why = "blocked on 443/80/5222";
             if let Ok(mut m) = sh.tcp_backoff.lock() {
                 let f = m.get(&key).map_or(0, |x| x.0) + 1;
                 let secs = (TCP_BACKOFF_INITIAL * 2u64.pow((f - 1).min(7))).min(TCP_BACKOFF_MAX);

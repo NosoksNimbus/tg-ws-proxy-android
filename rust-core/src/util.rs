@@ -27,6 +27,9 @@ pub fn dc_default_ip(dc: u32, test: bool) -> Option<&'static str> {
     }
 }
 
+/// Telegram DCs accept MTProto on all of these; a block on one port is often not on the others.
+pub const TG_TCP_PORTS: [u16; 3] = [443, 80, 5222];
+
 pub fn ws_domains(dc: u32, media: bool) -> Vec<String> {
     let dc = if dc == 203 { 2 } else { dc };
     if media {
