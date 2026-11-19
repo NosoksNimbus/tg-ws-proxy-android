@@ -190,4 +190,6 @@
     <string name="fake_tls_hint">Маскирует прокси под HTTPS-соединение с этим сайтом, например www.google.com. Если задан, ссылка использует secret ee. Пусто = выключено.</string>
     <string name="warp_wifi">Использовать WARP и на Wi-Fi</string>
     <string name="warp_wifi_hint">Выключено по умолчанию. Включите, если Telegram блокируется и на вашем Wi-Fi. Выключите оба переключателя, чтобы полностью отключить WARP.</string>
+    <string name="warp_youtube">Пускать YouTube через WARP</string>
+    <string name="warp_youtube_hint">Приложения YouTube (официальные и ReVanced/Vanced) идут через туннель в любой сети, даже если переключатели для Telegram выключены. Нужен конфиг WARP.</string>
 </resources>

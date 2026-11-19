@@ -26,6 +26,14 @@
         <package android:name="tw.nekomimi.nekogram" />
         <package android:name="app.nicegram" />
         <package android:name="org.forkgram.messenger" />
+        <package android:name="com.google.android.youtube" />
+        <package android:name="com.google.android.apps.youtube.music" />
+        <package android:name="com.google.android.apps.youtube.kids" />
+        <package android:name="com.google.android.apps.youtube.creator" />
+        <package android:name="app.revanced.android.youtube" />
+        <package android:name="app.revanced.android.apps.youtube.music" />
+        <package android:name="app.rvx.android.youtube" />
+        <package android:name="com.vanced.android.youtube" />
     </queries>
 
     <application

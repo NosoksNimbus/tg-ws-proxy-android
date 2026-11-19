@@ -60,7 +60,18 @@ object WarpManager {
         "app.nicegram",
         "org.forkgram.messenger",
     )
-    val queriedPackages: List<String> get() = TELEGRAM_PACKAGES
+    /** YouTube clients (official apps and the common patched builds). */
+    private val YOUTUBE_PACKAGES = listOf(
+        "com.google.android.youtube",
+        "com.google.android.apps.youtube.music",
+        "com.google.android.apps.youtube.kids",
+        "com.google.android.apps.youtube.creator",
+        "app.revanced.android.youtube",
+        "app.revanced.android.apps.youtube.music",
+        "app.rvx.android.youtube",
+        "com.vanced.android.youtube",
+    )
+    val queriedPackages: List<String> get() = TELEGRAM_PACKAGES + YOUTUBE_PACKAGES
 
     private const val NOTIF_WARP = 5
 
@@ -113,7 +124,19 @@ object WarpManager {
         refresh(ctx)
     }
 
-    private fun anyEnabled(ctx: Context): Boolean = enabled(ctx) || wifiEnabled(ctx)
+    /** Route YouTube through WARP on any network (independent of the Telegram switches). */
+    fun youtubeEnabled(ctx: Context): Boolean = prefs(ctx).getBoolean("youtube", false)
+
+    fun setYoutubeEnabled(ctx: Context, v: Boolean) {
+        prefs(ctx).edit().putBoolean("youtube", v).apply()
+        refresh(ctx)
+    }
+
+    private fun anyEnabled(ctx: Context): Boolean = enabled(ctx) || wifiEnabled(ctx) || youtubeEnabled(ctx)
+
+    /** Which app groups the running tunnel was built for: (telegram, youtube). */
+    @Volatile private var appliedApps: Pair<Boolean, Boolean>? = null
+    @Volatile private var wantApps: Pair<Boolean, Boolean> = true to false
 
     fun setEnabled(ctx: Context, v: Boolean) {
         prefs(ctx).edit().putBoolean("enabled", v).apply()
@@ -134,7 +157,7 @@ object WarpManager {
         val skipped = ArrayList<String>()
         repeat(8) {
             try {
-                Config.parse(ByteArrayInputStream(withApps(ctx, t).toByteArray()))
+                Config.parse(ByteArrayInputStream(withApps(ctx, t, wantApps).toByteArray()))
                 prefs(ctx).edit().putString("conf", t).apply()
                 if (skipped.isNotEmpty()) lastNote = skipped.joinToString(", ")
                 refresh(ctx)
@@ -301,7 +324,10 @@ object WarpManager {
         }
         val onMobileOnly: Boolean = synchronized(nets) { nets.isNotEmpty() && nets.values.none { it } }
         val onWifi: Boolean = synchronized(nets) { nets.values.any { it } }
-        val want = (enabled(app) && onMobileOnly) || (wifiEnabled(app) && onWifi)
+        val wantTg = (enabled(app) && onMobileOnly) || (wifiEnabled(app) && onWifi)
+        val wantYt = youtubeEnabled(app) && synchronized(nets) { nets.isNotEmpty() }
+        val want = wantTg || wantYt
+        wantApps = wantTg to wantYt
         if (!want) {
             down(app)
             cancelConsentNotification(app)
@@ -315,6 +341,13 @@ object WarpManager {
             return
         }
         if (isUp) {
+            if (appliedApps != wantApps) {
+                // the set of routed apps changed (e.g. Wi-Fi -> mobile): rebuild the tunnel
+                down(app)
+                exec.execute { main.post { refresh(app) } }
+                status = Status.CONNECTING
+                return
+            }
             status = Status.UP
             return
         }
@@ -428,8 +461,9 @@ object WarpManager {
         exec.execute {
             try {
                 val raw = prefs(ctx).getString("conf", null) ?: return@execute
-                val cfg = Config.parse(ByteArrayInputStream(withApps(ctx, raw).toByteArray()))
+                val cfg = Config.parse(ByteArrayInputStream(withApps(ctx, raw, wantApps).toByteArray()))
                 backend(ctx).setState(tunnel, Tunnel.State.UP, cfg)
+                appliedApps = wantApps
                 isUp = true
                 lastError = null
                 main.post { status = Status.UP }
@@ -461,11 +495,13 @@ object WarpManager {
 
     // ---- config post-processing ------------------------------------------------------
 
-    /** Adds "IncludedApplications" so only Telegram clients and this app use the tunnel. */
-    private fun withApps(ctx: Context, raw: String): String {
+    /** Adds "IncludedApplications": only the chosen app groups (and this app) use the tunnel. */
+    private fun withApps(ctx: Context, raw: String, want: Pair<Boolean, Boolean>): String {
         if (Regex("(?im)^\\s*(Included|Excluded)Applications\\s*=").containsMatchIn(raw)) return raw
         val pm = ctx.packageManager
-        val pkgs = TELEGRAM_PACKAGES.filter {
+        val wanted = (if (want.first) TELEGRAM_PACKAGES else emptyList()) +
+            (if (want.second) YOUTUBE_PACKAGES else emptyList())
+        val pkgs = wanted.filter {
             try { pm.getApplicationInfo(it, 0); true } catch (_: Exception) { false }
         } + ctx.packageName
         return Regex("(?im)^\\s*\\[Interface\\]\\s*$")
