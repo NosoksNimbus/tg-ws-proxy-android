@@ -1,6 +1,6 @@
 //! Listener, upstream pool, fallback chain and the re-encrypting bridges.
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering::Relaxed};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -45,8 +45,31 @@ pub struct Shared {
     h2: Arc<crate::h2lane::H2Pool>,
     sticky: Mutex<HashMap<u32, (Method, Instant)>>,
     front_first: AtomicBool,
-    plain_until: AtomicU64,
+    /// (domain, tls) -> do not retry before: CF handshake timed out recently.
+    cf_timeout_until: Mutex<HashMap<(String, bool), Instant>>,
+    cf_tls_ok: AtomicU32,
+    cf_plain_ok: AtomicU32,
+    /// Worker domain -> disabled until (daily limit, 5xx, network errors).
+    worker_until: Mutex<HashMap<String, Instant>>,
+    /// Prewarmed CF Worker sockets per DC.
+    wpool: Mutex<WPool>,
 }
+
+#[derive(Default)]
+struct WPool {
+    idle: HashMap<u32, VecDeque<(WsConn, Instant)>>,
+    pending: HashMap<u32, usize>,
+    backoff: HashMap<u32, (u32, Instant)>,
+}
+
+const WPOOL_MAX_AGE: Duration = Duration::from_secs(100);
+const WPOOL_PER_DC: usize = 1;
+const WPOOL_BACKOFF_MAX: u64 = 3600;
+const WORKER_INIT_TIMEOUT: Duration = Duration::from_secs(10);
+
+const CF_TIMEOUT_COOLDOWN: Duration = Duration::from_secs(30);
+const CF_CONNECT_TIMEOUTS: [u64; 5] = [3, 3, 5, 5, 10];
+const WORKER_FAILURE_COOLDOWN: Duration = Duration::from_secs(60);
 
 fn now_secs() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)
@@ -66,7 +89,11 @@ impl Shared {
             h2: Arc::new(crate::h2lane::H2Pool::new()),
             sticky: Mutex::new(HashMap::new()),
             front_first: AtomicBool::new(false),
-            plain_until: AtomicU64::new(0),
+            cf_timeout_until: Mutex::new(HashMap::new()),
+            cf_tls_ok: AtomicU32::new(0),
+            cf_plain_ok: AtomicU32::new(0),
+            wpool: Mutex::new(WPool::default()),
+            worker_until: Mutex::new(HashMap::new()),
         })
     }
 
@@ -101,33 +128,193 @@ impl Shared {
 
     // ---- Cloudflare transport selection ----------------------------------------------------
 
-    /// Order in which TLS:443 (true) and plain:80 (false) are tried for CF routes.
-    fn cf_modes(&self) -> Vec<bool> {
-        if self.cfg.no_secure || self.cfg.cf_mode == "plain" {
-            return vec![false];
-        }
-        if self.cfg.cf_mode == "tls" {
-            return vec![true];
-        }
-        if self.plain_until.load(Relaxed) > now_secs() { vec![false, true] } else { vec![true, false] }
+    /// TLS has worked at least as often as plain :80 on this network.
+    fn cf_prefers_tls(&self) -> bool {
+        self.cf_tls_ok.load(Relaxed) >= self.cf_plain_ok.load(Relaxed)
     }
 
-    async fn cf_connect(&self, host: &str, path: &str) -> Result<WsConn, WsError> {
-        let modes = self.cf_modes();
-        let mut last = WsError("no transport".into());
-        for (i, secure) in modes.iter().enumerate() {
-            match ws::connect(host, host, Duration::from_secs(5), path, None, *secure).await {
+    fn cf_cooling(&self, name: &str, tls: bool) -> bool {
+        self.cf_timeout_until
+            .lock()
+            .ok()
+            .and_then(|m| m.get(&(name.to_string(), tls)).cloned())
+            .map_or(false, |t| Instant::now() < t)
+    }
+
+    /// Connects to a Cloudflare host over TLS:443 or plain:80. A timed-out variant is paused for
+    /// 30 s and the other one is tried; successes decide which variant goes first next time.
+    async fn cf_connect(&self, name: &str, host: &str, path: &str) -> Result<WsConn, WsError> {
+        let (allow_tls, allow_plain) = if self.cfg.no_secure || self.cfg.cf_mode == "plain" {
+            (false, true)
+        } else if self.cfg.cf_mode == "tls" {
+            (true, false)
+        } else {
+            (true, true)
+        };
+        let order: Vec<bool> = match (allow_tls, allow_plain) {
+            (true, true) => {
+                let first = self.cf_prefers_tls();
+                vec![first, !first]
+            }
+            (true, false) => vec![true],
+            _ => vec![false],
+        };
+        let mut last = WsError("cooling down after timeout".into());
+        let mut timeouts = 0usize;
+        for secure in order {
+            if self.cf_cooling(name, secure) {
+                continue;
+            }
+            let tmo = Duration::from_secs(CF_CONNECT_TIMEOUTS[timeouts.min(CF_CONNECT_TIMEOUTS.len() - 1)]);
+            match ws::connect(host, host, tmo, path, None, secure).await {
                 Ok(c) => {
-                    if !*secure && i > 0 && self.cfg.cf_mode == "auto" {
-                        self.plain_until.store(now_secs() + 600, Relaxed);
-                        ldebug!("CF: TLS failed, using plain :80 for 10 min");
+                    if let Ok(mut m) = self.cf_timeout_until.lock() {
+                        m.remove(&(name.to_string(), secure));
                     }
+                    if secure { &self.cf_tls_ok } else { &self.cf_plain_ok }.fetch_add(1, Relaxed);
                     return Ok(c);
                 }
-                Err(e) => last = e,
+                Err(e) => {
+                    if e.0 == "timeout" {
+                        timeouts += 1;
+                        if let Ok(mut m) = self.cf_timeout_until.lock() {
+                            let now = Instant::now();
+                            m.retain(|_, t| *t + CF_TIMEOUT_COOLDOWN > now);
+                            m.insert((name.to_string(), secure), now + CF_TIMEOUT_COOLDOWN);
+                        }
+                        lwarn!("CF WebSocket timed out (host={host} tls={secure}); retry in 30s");
+                    }
+                    last = e;
+                }
             }
         }
         Err(last)
+    }
+
+    /// Connects to one of the available worker domains (shuffled).
+    async fn worker_connect(&self, dc: u32, dst: &str) -> Option<WsConn> {
+        let mut ds = self.workers_available();
+        ds.shuffle(&mut rand::thread_rng());
+        let path = format!("/apiws?dst={dst}&dc={dc}");
+        for wd in &ds {
+            match self.cf_connect(wd, wd, &path).await {
+                Ok(c) => return Some(c),
+                Err(e) => {
+                    lwarn!("CF worker {wd} failed: {e}");
+                    self.worker_failed(wd, &e);
+                }
+            }
+        }
+        None
+    }
+
+    fn wpool_get(self: &Arc<Self>, dc: u32) -> Option<WsConn> {
+        let mut hit = None;
+        if let Ok(mut p) = self.wpool.lock() {
+            if let Some(q) = p.idle.get_mut(&dc) {
+                while let Some((c, t)) = q.pop_front() {
+                    if t.elapsed() < WPOOL_MAX_AGE {
+                        hit = Some(c);
+                        break;
+                    }
+                }
+            }
+        }
+        self.wrefill(dc);
+        hit
+    }
+
+    fn wrefill(self: &Arc<Self>, dc: u32) {
+        if self.cfg.workers.is_empty() || self.pool_size.load(Relaxed) == 0 {
+            return;
+        }
+        let Some(dst) = dc_default_ip(dc, false) else { return };
+        if self.workers_available().is_empty() {
+            return;
+        }
+        {
+            let Ok(mut p) = self.wpool.lock() else { return };
+            let have = p.idle.get(&dc).map_or(0, |q| q.len()) + p.pending.get(&dc).copied().unwrap_or(0);
+            if have >= WPOOL_PER_DC {
+                return;
+            }
+            if p.backoff.get(&dc).map_or(false, |(_, t)| Instant::now() < *t) {
+                return;
+            }
+            *p.pending.entry(dc).or_insert(0) += 1;
+        }
+        let sh = self.clone();
+        let dst = dst.to_string();
+        tokio::spawn(async move {
+            let r = tokio::time::timeout(Duration::from_secs(20), sh.worker_connect(dc, &dst)).await.ok().flatten();
+            if let Ok(mut p) = sh.wpool.lock() {
+                if let Some(n) = p.pending.get_mut(&dc) {
+                    *n = n.saturating_sub(1);
+                }
+                match r {
+                    Some(c) => {
+                        p.backoff.remove(&dc);
+                        p.idle.entry(dc).or_default().push_back((c, Instant::now()));
+                    }
+                    None => {
+                        let n = p.backoff.get(&dc).map_or(0, |b| b.0) + 1;
+                        let secs = (1u64 << (n - 1).min(12)).min(WPOOL_BACKOFF_MAX);
+                        p.backoff.insert(dc, (n, Instant::now() + Duration::from_secs(secs)));
+                    }
+                }
+            }
+        });
+    }
+
+    /// Drops stale worker sockets and keeps one warm per DC that has no direct route.
+    fn wpool_rotate(self: &Arc<Self>) {
+        if let Ok(mut p) = self.wpool.lock() {
+            for q in p.idle.values_mut() {
+                q.retain(|(_, t)| t.elapsed() < WPOOL_MAX_AGE);
+            }
+        }
+        for dc in 1..=5u32 {
+            if !self.cfg.dc.contains_key(&dc) {
+                self.wrefill(dc);
+            }
+        }
+    }
+
+    fn workers_available(&self) -> Vec<String> {
+        let now = Instant::now();
+        let m = self.worker_until.lock().ok();
+        let mut out: Vec<String> = Vec::new();
+        for d in &self.cfg.workers {
+            if out.contains(d) {
+                continue;
+            }
+            if m.as_ref().and_then(|m| m.get(d)).map_or(false, |t| *t > now) {
+                continue;
+            }
+            out.push(d.clone());
+        }
+        out
+    }
+
+    /// Pauses a worker domain after a daily-limit (429), 5xx or network failure.
+    fn worker_failed(&self, domain: &str, e: &WsError) {
+        let now = Instant::now();
+        let (until, why) = if e.0.starts_with("HTTP 429") {
+            (now + Duration::from_secs(86400 - now_secs() % 86400), "daily request limit".to_string())
+        } else if e.0.starts_with("HTTP 5") {
+            (now + WORKER_FAILURE_COOLDOWN, e.0.chars().take(40).collect())
+        } else if e.0.starts_with("HTTP ") {
+            return; // challenge / misconfigured route: not a reason to disable the whole domain
+        } else {
+            (now + WORKER_FAILURE_COOLDOWN, e.0.chars().take(40).collect())
+        };
+        if let Ok(mut m) = self.worker_until.lock() {
+            if m.get(domain).map_or(false, |t| *t > now) {
+                return;
+            }
+            m.insert(domain.to_string(), until);
+            lwarn!("CF worker {domain} disabled for {}s: {why}", (until - now).as_secs().max(1));
+        }
     }
 
     fn cf_domains_for(&self, dc: u32) -> Vec<String> {
@@ -256,6 +443,7 @@ impl Shared {
     }
 
     fn warmup(self: &Arc<Self>) {
+        self.wpool_rotate();
         for dc in self.cfg.dc.keys() {
             for media in [false, true] {
                 self.refill((*dc, media, false));
@@ -268,12 +456,21 @@ impl Shared {
             p.idle.clear();
             p.backoff.clear();
         }
+        if let Ok(mut p) = self.wpool.lock() {
+            p.idle.clear();
+            p.backoff.clear();
+        }
         if let Ok(mut t) = self.tcp_backoff.lock() {
             t.clear();
         }
         if let Ok(mut t) = self.sticky.lock() {
             t.clear();
         }
+        if let Ok(mut t) = self.cf_timeout_until.lock() {
+            t.clear();
+        }
+        self.cf_tls_ok.store(0, Relaxed);
+        self.cf_plain_ok.store(0, Relaxed);
     }
 
     fn note_ok(&self, dc: u32, m: Method) {
@@ -330,17 +527,16 @@ enum Method {
     Tcp,
 }
 
-async fn worker_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool, dst: &str) -> Option<WsConn> {
-    let path = format!("/apiws?dst={dst}&dc={dc}");
+async fn worker_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool, dst: &str, is_test: bool) -> Option<WsConn> {
     let tag = if media { " media" } else { "" };
-    for wd in &sh.cfg.workers {
-        linfo!("[{label}] DC{dc}{tag} -> trying CF worker {wd} for {dst}");
-        match sh.cf_connect(wd, &path).await {
-            Ok(c) => return Some(c),
-            Err(e) => lwarn!("[{label}] DC{dc}{tag} CF worker {wd} failed: {e}"),
+    if !is_test {
+        if let Some(c) = sh.wpool_get(dc) {
+            linfo!("[{label}] DC{dc}{tag} -> CF worker pool hit");
+            return Some(c);
         }
     }
-    None
+    linfo!("[{label}] DC{dc}{tag} -> trying CF worker for {dst}");
+    tokio::time::timeout(Duration::from_secs(10), sh.worker_connect(dc, dst)).await.ok().flatten()
 }
 
 async fn cf_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool) -> Option<WsConn> {
@@ -355,7 +551,7 @@ async fn cf_ws(sh: &Arc<Shared>, label: &str, dc: u32, media: bool) -> Option<Ws
         async move {
             let base = domains[i].clone();
             let host = format!("kws{dc}.{base}");
-            match sh.cf_connect(&host, "/apiws").await {
+            match sh.cf_connect(&base, &host, "/apiws").await {
                 Ok(c) => {
                     if let Ok(mut m) = sh.cf_current.lock() {
                         m.insert(dc, base);
@@ -563,8 +759,8 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
     methods.sort_by_key(|m| if Some(*m) == sticky { 0 } else { 1 });
     for m in methods {
         // fast lane for media: HTTP/2 POSTs through Cloudflare instead of a WebSocket
-        if matches!(m, Method::Cf) && media && sh.cfg.h2_media {
-            let domains = sh.cf_domains_for(dc);
+        if matches!(m, Method::Cf) && media && sh.cfg.h2_media && sh.cf_prefers_tls() {
+            let domains: Vec<String> = sh.cf_domains_for(dc).into_iter().filter(|d| !sh.cf_cooling(d, true)).collect();
             if let Some(ch) = sh.h2.open(dc, &domains, &label).await {
                 stats::inc(&stats::CF);
                 sh.note_ok(dc, Method::Cf);
@@ -574,7 +770,7 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
             }
         }
         let up = match m {
-            Method::Worker => worker_ws(&sh, &label, dc, media, dst.unwrap_or("")).await
+            Method::Worker => worker_ws(&sh, &label, dc, media, dst.unwrap_or(""), is_test).await
                 .map(|c| (Upstream::Ws { conn: c, splitter: false }, &stats::CF)),
             Method::Cf => cf_ws(&sh, &label, dc, media).await
                 .map(|c| (Upstream::Ws { conn: c, splitter: true }, &stats::CF)),
@@ -585,7 +781,10 @@ async fn run_client(sh: Arc<Shared>, mut sock: TcpStream, label: String) {
         sh.note_ok(dc, m);
         match up {
             Upstream::Ws { conn, splitter } => {
-                if conn.w.send(&relay_init).await.is_err() {
+                let sent = tokio::time::timeout(WORKER_INIT_TIMEOUT, conn.w.send(&relay_init)).await;
+                if !matches!(sent, Ok(Ok(()))) {
+                    lwarn!("[{label}] DC{dc}{tag} init frame failed");
+                    conn.w.close().await;
                     continue;
                 }
                 stats::inc(counter);

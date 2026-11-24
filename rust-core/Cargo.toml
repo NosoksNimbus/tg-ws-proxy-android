@@ -1,6 +1,6 @@
 [package]
 name = "tgws_core"
-version = "1.11.4"
+version = "1.12.0"
 edition = "2021"
 license = "MIT"
 description = "TG WS Proxy core and desktop CLI (MTProto -> WebSocket bridge)"
